@@ -1,0 +1,6 @@
+node_modules
+terraform
+.envrc
+.git
+*.md
+data

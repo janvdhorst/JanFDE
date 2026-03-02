@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inbound Carrier Agent Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold mb-8 text-gray-800">Inbound Carrier Agent Dashboard</h1>
+
+    <!-- KPI Cards Row -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-sm font-medium text-gray-500 uppercase">Total Offers</h3>
+        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-total-offers">-</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-sm font-medium text-gray-500 uppercase">Conversion Rate</h3>
+        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-conversion-rate">-%</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-sm font-medium text-gray-500 uppercase">Avg Negotiation Rounds</h3>
+        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-avg-rounds">-</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-sm font-medium text-gray-500 uppercase">Avg Final Rate</h3>
+        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-avg-rate">$-</p>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-lg font-medium text-gray-800 mb-4">Call Outcomes</h3>
+        <div class="relative h-64">
+          <canvas id="outcomesChart"></canvas>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-lg font-medium text-gray-800 mb-4">Carrier Sentiment</h3>
+        <div class="relative h-64">
+          <canvas id="sentimentChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Extract API key from URL query parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const apiKey = urlParams.get('api_key') || '';
+
+    // Chart instances
+    let outcomesChart = null;
+    let sentimentChart = null;
+
+    // Default colors
+    const colors = [
+      '#3B82F6', // blue
+      '#10B981', // green
+      '#F59E0B', // yellow
+      '#EF4444', // red
+      '#8B5CF6', // purple
+      '#6B7280', // gray
+    ];
+
+    async function fetchMetrics() {
+      try {
+        const response = await fetch(`/dashboard/metrics?api_key=${encodeURIComponent(apiKey)}`);
+        if (!response.ok) {
+          throw new Error(`Error fetching metrics: ${response.statusText}`);
+        }
+        const data = await response.json();
+        updateDashboard(data);
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+        alert('Failed to load dashboard data. Please verify your API key in the URL (?api_key=...).');
+      }
+    }
+
+    function updateDashboard(data) {
+      // Update KPIs
+      document.getElementById('kpi-total-offers').textContent = data.offers.total_offers || 0;
+      document.getElementById('kpi-conversion-rate').textContent = `${data.offers.conversion_rate_pct || 0}%`;
+      document.getElementById('kpi-avg-rounds').textContent = data.offers.avg_negotiation_rounds || 0;
+      
+      const avgRate = data.offers.avg_final_rate;
+      document.getElementById('kpi-avg-rate').textContent = avgRate ? `$${avgRate}` : '-';
+
+      // Prepare Chart Data
+      const outcomesData = data.outcome_breakdown || [];
+      const sentimentData = data.sentiment_breakdown || [];
+
+      // Outcomes Doughnut Chart
+      const outcomesCtx = document.getElementById('outcomesChart').getContext('2d');
+      if (outcomesChart) outcomesChart.destroy();
+      outcomesChart = new Chart(outcomesCtx, {
+        type: 'doughnut',
+        data: {
+          labels: outcomesData.map(item => item.outcome),
+          datasets: [{
+            data: outcomesData.map(item => item.count),
+            backgroundColor: colors.slice(0, outcomesData.length),
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right' }
+          }
+        }
+      });
+
+      // Sentiment Pie Chart
+      const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+      if (sentimentChart) sentimentChart.destroy();
+      sentimentChart = new Chart(sentimentCtx, {
+        type: 'pie',
+        data: {
+          labels: sentimentData.map(item => item.sentiment),
+          datasets: [{
+            data: sentimentData.map(item => item.count),
+            backgroundColor: colors.slice(0, sentimentData.length),
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right' }
+          }
+        }
+      });
+    }
+
+    // Load data on start
+    fetchMetrics();
+  </script>
+</body>
+</html>
