@@ -3,143 +3,411 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inbound Carrier Agent Dashboard</title>
+  <title>Carrier Sales Agent — Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .kpi-card { transition: transform 0.15s; }
+    .kpi-card:hover { transform: translateY(-2px); }
+    .funnel-step { position: relative; }
+    .funnel-bar { transition: width 0.6s ease; }
+  </style>
 </head>
-<body class="bg-gray-100 p-8">
-  <div class="max-w-6xl mx-auto">
-    <h1 class="text-3xl font-bold mb-8 text-gray-800">Inbound Carrier Agent Dashboard</h1>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Carrier Sales Agent</h1>
+        <p class="text-sm text-gray-500 mt-1">Performance Dashboard</p>
+      </div>
+      <button onclick="fetchMetrics()" class="text-sm bg-white border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-50 text-gray-700">Refresh</button>
+    </div>
 
-    <!-- KPI Cards Row -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-sm font-medium text-gray-500 uppercase">Total Offers</h3>
-        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-total-offers">-</p>
+    <!-- Row 1: Executive KPIs -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Calls</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-calls">—</p>
       </div>
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-sm font-medium text-gray-500 uppercase">Conversion Rate</h3>
-        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-conversion-rate">-%</p>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Booking Rate</p>
+        <p class="text-2xl font-bold text-emerald-600 mt-1" id="kpi-booking-rate">—</p>
       </div>
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-sm font-medium text-gray-500 uppercase">Avg Negotiation Rounds</h3>
-        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-avg-rounds">-</p>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Revenue Booked</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-revenue">—</p>
       </div>
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-sm font-medium text-gray-500 uppercase">Avg Final Rate</h3>
-        <p class="text-3xl font-bold text-gray-900 mt-2" id="kpi-avg-rate">$-</p>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Margin Preserved</p>
+        <p class="text-2xl font-bold text-blue-600 mt-1" id="kpi-margin">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Duration</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-duration">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">1st-Offer Accept</p>
+        <p class="text-2xl font-bold text-purple-600 mt-1" id="kpi-first-offer">—</p>
       </div>
     </div>
 
-    <!-- Charts Row -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-lg font-medium text-gray-800 mb-4">Call Outcomes</h3>
-        <div class="relative h-64">
-          <canvas id="outcomesChart"></canvas>
-        </div>
+    <!-- Row 2: Funnel -->
+    <div class="bg-white p-6 rounded-xl shadow-sm border mb-6">
+      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Conversion Funnel</h3>
+      <div id="funnel-container" class="space-y-2"></div>
+    </div>
+
+    <!-- Row 3: Rate Waterfall + Calls by Hour -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Rate Waterfall (Booked Loads)</h3>
+        <div class="h-64"><canvas id="waterfallChart"></canvas></div>
       </div>
-      <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-lg font-medium text-gray-800 mb-4">Carrier Sentiment</h3>
-        <div class="relative h-64">
-          <canvas id="sentimentChart"></canvas>
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Calls by Hour of Day (UTC)</h3>
+        <div class="h-64"><canvas id="hourChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Row 4: Outcomes + Sentiment -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Call Outcomes</h3>
+        <div class="h-64"><canvas id="outcomesChart"></canvas></div>
+      </div>
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Carrier Sentiment</h3>
+        <div class="h-64"><canvas id="sentimentChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Row 4b: User Behavior -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">User Behavior</h3>
+        <div class="h-64"><canvas id="behaviorChart"></canvas></div>
+      </div>
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Load Board Status</h3>
+        <div class="grid grid-cols-2 gap-4 h-64 content-center">
+          <div class="text-center">
+            <p class="text-xs text-gray-500 uppercase">Available</p>
+            <p class="text-3xl font-bold text-blue-600" id="kpi-loads-available">—</p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 uppercase">Booked</p>
+            <p class="text-3xl font-bold text-emerald-600" id="kpi-loads-booked">—</p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 uppercase">Empty Board Rate</p>
+            <p class="text-3xl font-bold text-orange-500" id="kpi-empty-board">—</p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 uppercase">Revenue / Call</p>
+            <p class="text-3xl font-bold text-gray-900" id="kpi-rev-per-call">—</p>
+          </div>
         </div>
       </div>
     </div>
+
+    <!-- Row 5: Top Lanes + Top Origins -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Lanes</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="text-left text-gray-500 border-b">
+              <th class="pb-2 font-medium">Lane</th>
+              <th class="pb-2 font-medium text-right">Calls</th>
+              <th class="pb-2 font-medium text-right">Booked</th>
+              <th class="pb-2 font-medium text-right">Avg List</th>
+              <th class="pb-2 font-medium text-right">Avg Final</th>
+            </tr></thead>
+            <tbody id="lanes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Origin Cities</h3>
+        <div class="h-64"><canvas id="originsChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Row 6: Equipment + Objections -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Equipment Demand</h3>
+        <div class="h-64"><canvas id="equipmentChart"></canvas></div>
+      </div>
+      <div class="bg-white p-6 rounded-xl shadow-sm border">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Carrier Objections</h3>
+        <div class="h-64"><canvas id="objectionsChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Row 7: Negotiation Stats + Speed Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Rounds</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-rounds">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Discount Given</p>
+        <p class="text-2xl font-bold text-orange-600 mt-1" id="kpi-discount">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">P90 Latency</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-latency">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Interruption Rate</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-interruption">—</p>
+      </div>
+    </div>
+
+    <!-- Row 8: Carrier Intelligence -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Unique Carriers</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-unique-carriers">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Repeat Caller Rate</p>
+        <p class="text-2xl font-bold text-indigo-600 mt-1" id="kpi-repeat">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Board Coverage</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-coverage">—</p>
+      </div>
+      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Off-Hours Calls</p>
+        <p class="text-2xl font-bold text-teal-600 mt-1" id="kpi-offhours">—</p>
+      </div>
+    </div>
+
+    <!-- Row 9: Top Carriers Table -->
+    <div class="bg-white p-6 rounded-xl shadow-sm border mb-6">
+      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Carriers</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-gray-500 border-b">
+            <th class="pb-2 font-medium">MC #</th>
+            <th class="pb-2 font-medium">Carrier Name</th>
+            <th class="pb-2 font-medium text-right">Calls</th>
+            <th class="pb-2 font-medium text-right">Bookings</th>
+          </tr></thead>
+          <tbody id="carriers-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
   <script>
-    // Extract API key from URL query parameters
     const urlParams = new URLSearchParams(window.location.search);
     const apiKey = urlParams.get('api_key') || '';
 
-    // Chart instances
-    let outcomesChart = null;
-    let sentimentChart = null;
+    const COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#6B7280','#14B8A6','#F97316','#6366F1'];
+    const charts = {};
 
-    // Default colors
-    const colors = [
-      '#3B82F6', // blue
-      '#10B981', // green
-      '#F59E0B', // yellow
-      '#EF4444', // red
-      '#8B5CF6', // purple
-      '#6B7280', // gray
-    ];
+    function destroyChart(key) { if (charts[key]) { charts[key].destroy(); charts[key] = null; } }
+
+    function fmt$(n) { return n >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${n}`; }
+    function fmtDuration(sec) {
+      if (!sec) return '—';
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
 
     async function fetchMetrics() {
       try {
-        const response = await fetch(`/dashboard/metrics?api_key=${encodeURIComponent(apiKey)}`);
-        if (!response.ok) {
-          throw new Error(`Error fetching metrics: ${response.statusText}`);
-        }
-        const data = await response.json();
-        updateDashboard(data);
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error);
-        alert('Failed to load dashboard data. Please verify your API key in the URL (?api_key=...).');
+        const r = await fetch(`/dashboard/metrics?api_key=${encodeURIComponent(apiKey)}`);
+        if (!r.ok) throw new Error(r.statusText);
+        updateDashboard(await r.json());
+      } catch (e) {
+        console.error(e);
       }
     }
 
-    function updateDashboard(data) {
-      // Update KPIs
-      document.getElementById('kpi-total-offers').textContent = data.offers.total_offers || 0;
-      document.getElementById('kpi-conversion-rate').textContent = `${data.offers.conversion_rate_pct || 0}%`;
-      document.getElementById('kpi-avg-rounds').textContent = data.offers.avg_negotiation_rounds || 0;
-      
-      const avgRate = data.offers.avg_final_rate;
-      document.getElementById('kpi-avg-rate').textContent = avgRate ? `$${avgRate}` : '-';
+    function updateDashboard(d) {
+      const k = d.kpis;
+      document.getElementById('kpi-calls').textContent = k.total_calls;
+      document.getElementById('kpi-booking-rate').textContent = `${k.booking_rate_pct}%`;
+      document.getElementById('kpi-revenue').textContent = fmt$(k.revenue_booked);
+      document.getElementById('kpi-margin').textContent = `${k.avg_margin_preserved_pct}%`;
+      document.getElementById('kpi-duration').textContent = fmtDuration(k.avg_call_duration_sec);
+      document.getElementById('kpi-first-offer').textContent = `${k.first_offer_accept_rate_pct}%`;
 
-      // Prepare Chart Data
-      const outcomesData = data.outcome_breakdown || [];
-      const sentimentData = data.sentiment_breakdown || [];
+      document.getElementById('kpi-rounds').textContent = d.negotiation.avg_rounds;
+      document.getElementById('kpi-discount').textContent = d.negotiation.avg_discount_given ? `+$${d.negotiation.avg_discount_given}` : '—';
+      document.getElementById('kpi-latency').textContent = d.speed.avg_p90_latency_ms ? `${d.speed.avg_p90_latency_ms}ms` : '—';
+      document.getElementById('kpi-interruption').textContent = d.speed.avg_interruption_rate_pct ? `${d.speed.avg_interruption_rate_pct}%` : '—';
 
-      // Outcomes Doughnut Chart
-      const outcomesCtx = document.getElementById('outcomesChart').getContext('2d');
-      if (outcomesChart) outcomesChart.destroy();
-      outcomesChart = new Chart(outcomesCtx, {
-        type: 'doughnut',
+      document.getElementById('kpi-unique-carriers').textContent = d.carrier_intelligence.unique_carriers;
+      document.getElementById('kpi-repeat').textContent = `${d.carrier_intelligence.repeat_caller_rate_pct}%`;
+      document.getElementById('kpi-coverage').textContent = `${d.loads.board_coverage_pct}%`;
+      document.getElementById('kpi-offhours').textContent = `${d.carrier_intelligence.off_hours_rate_pct}%`;
+
+      renderFunnel(d.funnel);
+      renderWaterfall(d.negotiation);
+      renderHourChart(d.calls_by_hour);
+      renderDoughnut('outcomesChart', d.outcome_breakdown, 'outcome');
+      renderDoughnut('sentimentChart', d.sentiment_breakdown, 'sentiment');
+      renderDoughnut('behaviorChart', d.user_behavior_breakdown || [], 'behavior');
+
+      document.getElementById('kpi-loads-available').textContent = d.loads.available;
+      document.getElementById('kpi-loads-booked').textContent = d.loads.booked;
+      document.getElementById('kpi-empty-board').textContent = `${d.loads.empty_board_rate_pct}%`;
+      document.getElementById('kpi-rev-per-call').textContent = d.kpis.revenue_per_call ? fmt$(d.kpis.revenue_per_call) : '—';
+      renderOrigins(d.top_origins);
+      renderEquipment(d.equipment_breakdown);
+      renderObjections(d.top_objections);
+      renderLanesTable(d.top_lanes);
+      renderCarriersTable(d.top_carriers);
+    }
+
+    function renderFunnel(f) {
+      const steps = [
+        { label: 'Total Calls', value: f.total_calls },
+        { label: 'Verified', value: f.verified },
+        { label: 'Loads Found', value: f.loads_found },
+        { label: 'Offers Made', value: f.offers_made },
+        { label: 'Negotiations', value: f.negotiations },
+        { label: 'Booked', value: f.booked },
+      ];
+      const max = steps[0].value || 1;
+      const container = document.getElementById('funnel-container');
+      container.innerHTML = steps.map((s, i) => {
+        const pct = ((s.value / max) * 100).toFixed(0);
+        const dropoff = i > 0 ? steps[i-1].value - s.value : 0;
+        const dropPct = i > 0 && steps[i-1].value > 0 ? ((dropoff / steps[i-1].value) * 100).toFixed(0) : 0;
+        const barColor = i === steps.length - 1 ? 'bg-emerald-500' : 'bg-blue-500';
+        return `<div class="funnel-step flex items-center gap-3">
+          <div class="w-28 text-xs text-gray-600 text-right font-medium">${s.label}</div>
+          <div class="flex-1 bg-gray-100 rounded-full h-7 relative overflow-hidden">
+            <div class="funnel-bar ${barColor} h-full rounded-full flex items-center pl-3" style="width:${pct}%">
+              <span class="text-xs font-bold text-white">${s.value}</span>
+            </div>
+          </div>
+          ${i > 0 && dropoff > 0 ? `<span class="text-xs text-red-400 w-16">-${dropoff} (${dropPct}%)</span>` : '<span class="w-16"></span>'}
+        </div>`;
+      }).join('');
+    }
+
+    function renderWaterfall(n) {
+      destroyChart('waterfall');
+      charts.waterfall = new Chart(document.getElementById('waterfallChart'), {
+        type: 'bar',
         data: {
-          labels: outcomesData.map(item => item.outcome),
+          labels: ['Loadboard Rate', 'Our Offer', 'Final Rate'],
           datasets: [{
-            data: outcomesData.map(item => item.count),
-            backgroundColor: colors.slice(0, outcomesData.length),
-            borderWidth: 1
+            data: [n.avg_loadboard_rate, n.avg_offered_rate, n.avg_final_rate],
+            backgroundColor: ['#93C5FD', '#3B82F6', '#10B981'],
+            borderRadius: 6,
+            barPercentage: 0.5,
           }]
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'right' }
-          }
-        }
-      });
-
-      // Sentiment Pie Chart
-      const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
-      if (sentimentChart) sentimentChart.destroy();
-      sentimentChart = new Chart(sentimentCtx, {
-        type: 'pie',
-        data: {
-          labels: sentimentData.map(item => item.sentiment),
-          datasets: [{
-            data: sentimentData.map(item => item.count),
-            backgroundColor: colors.slice(0, sentimentData.length),
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'right' }
-          }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: false, ticks: { callback: v => '$'+v } } } }
       });
     }
 
-    // Load data on start
+    function renderHourChart(hours) {
+      destroyChart('hour');
+      charts.hour = new Chart(document.getElementById('hourChart'), {
+        type: 'bar',
+        data: {
+          labels: hours.map((_, i) => `${i}:00`),
+          datasets: [{ data: hours, backgroundColor: hours.map((_, i) => i < 8 || i >= 18 ? '#14B8A6' : '#3B82F6'), borderRadius: 4 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+      });
+    }
+
+    function renderDoughnut(canvasId, data, labelKey) {
+      const key = canvasId;
+      destroyChart(key);
+      if (!data.length) return;
+      charts[key] = new Chart(document.getElementById(canvasId), {
+        type: 'doughnut',
+        data: {
+          labels: data.map(d => d[labelKey]),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: COLORS.slice(0, data.length), borderWidth: 0 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
+          plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12 } } } }
+      });
+    }
+
+    function renderOrigins(data) {
+      destroyChart('origins');
+      if (!data.length) return;
+      charts.origins = new Chart(document.getElementById('originsChart'), {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.city),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: '#3B82F6', borderRadius: 4 }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+      });
+    }
+
+    function renderEquipment(data) {
+      destroyChart('equipment');
+      if (!data.length) return;
+      charts.equipment = new Chart(document.getElementById('equipmentChart'), {
+        type: 'doughnut',
+        data: {
+          labels: data.map(d => d.equipment),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: COLORS.slice(0, data.length), borderWidth: 0 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
+          plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12 } } } }
+      });
+    }
+
+    function renderObjections(data) {
+      destroyChart('objections');
+      if (!data.length) {
+        document.getElementById('objectionsChart').parentElement.innerHTML = '<p class="text-sm text-gray-400 text-center mt-20">No objections recorded yet</p>';
+        return;
+      }
+      charts.objections = new Chart(document.getElementById('objectionsChart'), {
+        type: 'bar',
+        data: {
+          labels: data.map(d => d.objection),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: '#F59E0B', borderRadius: 4 }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+      });
+    }
+
+    function renderLanesTable(lanes) {
+      const tbody = document.getElementById('lanes-tbody');
+      if (!lanes.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-4">No data yet</td></tr>'; return; }
+      tbody.innerHTML = lanes.map(l => `<tr class="border-b border-gray-50 hover:bg-gray-50">
+        <td class="py-2 font-medium text-gray-800">${l.origin} → ${l.destination}</td>
+        <td class="py-2 text-right text-gray-600">${l.calls}</td>
+        <td class="py-2 text-right text-gray-600">${l.booked}</td>
+        <td class="py-2 text-right text-gray-600">$${l.avg_list_rate}</td>
+        <td class="py-2 text-right text-gray-600">${l.avg_final_rate ? '$'+l.avg_final_rate : '—'}</td>
+      </tr>`).join('');
+    }
+
+    function renderCarriersTable(carriers) {
+      const tbody = document.getElementById('carriers-tbody');
+      if (!carriers.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-4">No data yet</td></tr>'; return; }
+      tbody.innerHTML = carriers.map(c => `<tr class="border-b border-gray-50 hover:bg-gray-50">
+        <td class="py-2 font-mono text-gray-800">${c.mc_number}</td>
+        <td class="py-2 text-gray-600">${c.carrier_name || '—'}</td>
+        <td class="py-2 text-right text-gray-600">${c.call_count}</td>
+        <td class="py-2 text-right text-gray-600">${c.bookings}</td>
+      </tr>`).join('');
+    }
+
     fetchMetrics();
   </script>
 </body>

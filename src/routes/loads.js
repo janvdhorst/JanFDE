@@ -1,5 +1,6 @@
 import { Router } from "express";
-import db from "../db.js";
+import db, { LOADS_TABLE } from "../db.js";
+import { ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const router = Router();
 
@@ -49,78 +50,98 @@ router.get("/", async (req, res) => {
       carrierCoords = await geocode(origin);
       if (carrierCoords) useGeo = true;
     } catch {
-      /* fallback to LIKE */
+      /* fallback to LIKE logic implemented in JS later */
     }
   }
 
-  let sql = "SELECT * FROM loads WHERE 1=1";
-  const params = {};
+  try {
+    // For a small dataset, we'll scan and filter in memory.
+    // In production with large data, you'd use GSI/Query or OpenSearch.
+    const { Items } = await db.send(new ScanCommand({ TableName: LOADS_TABLE }));
+    let loads = Items || [];
 
-  if (origin && !useGeo) {
-    sql += " AND origin LIKE @origin";
-    params.origin = `%${origin}%`;
-  }
-  if (destination) {
-    sql += " AND destination LIKE @destination";
-    params.destination = `%${destination}%`;
-  }
-  if (equipment_type) {
-    sql += " AND LOWER(equipment_type) = LOWER(@equipment_type)";
-    params.equipment_type = equipment_type;
-  }
-  if (min_rate) {
-    sql += " AND loadboard_rate >= @min_rate";
-    params.min_rate = Number(min_rate);
-  }
-  if (max_rate) {
-    sql += " AND loadboard_rate <= @max_rate";
-    params.max_rate = Number(max_rate);
-  }
-  if (status) {
-    sql += " AND status = @status";
-    params.status = status;
-  } else {
-    sql += " AND status = 'available'";
-  }
-  if (pickup_date) {
-    sql += " AND DATE(pickup_datetime) = @pickup_date";
-    params.pickup_date = pickup_date;
-  }
+    // Apply filters
+    if (origin && !useGeo) {
+      loads = loads.filter(l => l.origin?.toLowerCase().includes(origin.toLowerCase()));
+    }
+    if (destination) {
+      loads = loads.filter(l => l.destination?.toLowerCase().includes(destination.toLowerCase()));
+    }
+    if (equipment_type) {
+      loads = loads.filter(l => l.equipment_type?.toLowerCase() === equipment_type.toLowerCase());
+    }
+    if (min_rate) {
+      loads = loads.filter(l => l.loadboard_rate >= Number(min_rate));
+    }
+    if (max_rate) {
+      loads = loads.filter(l => l.loadboard_rate <= Number(max_rate));
+    }
+    if (status) {
+      loads = loads.filter(l => l.status === status);
+    } else {
+      loads = loads.filter(l => l.status === 'available');
+    }
+    if (pickup_date) {
+      loads = loads.filter(l => l.pickup_datetime?.startsWith(pickup_date));
+    }
+    if (useGeo) {
+      loads = loads.filter(l => l.lat != null && l.lng != null);
+    }
 
-  if (useGeo) {
-    sql += " AND lat IS NOT NULL AND lng IS NOT NULL";
-  }
+    // Sort by pickup_datetime ASC
+    loads.sort((a, b) => new Date(a.pickup_datetime) - new Date(b.pickup_datetime));
 
-  sql += " ORDER BY pickup_datetime ASC LIMIT @limit";
-  params.limit = Math.min(Number(limit), 100);
+    if (useGeo) {
+      loads = loads
+        .map((load) => ({
+          ...load,
+          deadhead_miles: Math.round(
+            haversine(carrierCoords.lat, carrierCoords.lng, load.lat, load.lng)
+          ),
+        }))
+        .filter((load) => load.deadhead_miles <= DEADHEAD_RADIUS)
+        .sort((a, b) => a.deadhead_miles - b.deadhead_miles);
+    }
 
-  let loads = db.prepare(sql).all(params);
+    // Apply limit
+    loads = loads.slice(0, Math.min(Number(limit), 100));
 
-  if (useGeo) {
-    loads = loads
-      .map((load) => ({
+    loads = loads.map(load => {
+      const offerRate = Math.round(load.loadboard_rate * 0.95);
+      const maxRate = Math.round(load.loadboard_rate * 1.10);
+      const deadhead = load.deadhead_miles || 0;
+      const totalMiles = load.miles + deadhead;
+      const effectiveRpm = totalMiles > 0 ? (offerRate / totalMiles).toFixed(2) : 0;
+
+      return {
         ...load,
-        deadhead_miles: Math.round(
-          haversine(carrierCoords.lat, carrierCoords.lng, load.lat, load.lng)
-        ),
-      }))
-      .filter((load) => load.deadhead_miles <= DEADHEAD_RADIUS)
-      .sort((a, b) => a.deadhead_miles - b.deadhead_miles);
+        offer_rate: offerRate,
+        max_rate: maxRate,
+        effective_rpm: Number(effectiveRpm)
+      };
+    });
+
+    loads = loads.slice(0, 5);
+
+    res.json({ count: loads.length, loads });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch loads" });
   }
-
-  loads = loads.map((load) => ({
-    ...load,
-    offer_rate: Math.round(load.loadboard_rate * 0.95),
-    max_rate: Math.round(load.loadboard_rate * 1.10),
-  }));
-
-  res.json({ count: loads.length, loads });
 });
 
-router.get("/:id", (req, res) => {
-  const load = db.prepare("SELECT * FROM loads WHERE load_id = ?").get(req.params.id);
-  if (!load) return res.status(404).json({ error: "Load not found" });
-  res.json(load);
+router.get("/:id", async (req, res) => {
+  try {
+    const { Item } = await db.send(new GetCommand({
+      TableName: LOADS_TABLE,
+      Key: { load_id: req.params.id }
+    }));
+    if (!Item) return res.status(404).json({ error: "Load not found" });
+    res.json(Item);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch load" });
+  }
 });
 
 export default router;

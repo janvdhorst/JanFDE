@@ -11,9 +11,8 @@ variable "app_name" {
 }
 
 variable "image_tag" {
-  description = "Docker image tag to deploy"
+  description = "Docker image tag to deploy (git short SHA by default)"
   type        = string
-  default     = "latest"
 }
 
 variable "container_port" {

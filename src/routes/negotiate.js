@@ -1,5 +1,6 @@
 import { Router } from "express";
-import db from "../db.js";
+import db, { LOADS_TABLE, OFFERS_TABLE } from "../db.js";
+import { GetCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
 const router = Router();
 
@@ -15,72 +16,105 @@ function calcCeiling(loadboardRate) {
   return Math.round(loadboardRate * (1 + MAX_PREMIUM));
 }
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const { load_id, mc_number, carrier_rate } = req.body;
 
   if (!load_id || !mc_number) {
     return res.status(400).json({ error: "load_id and mc_number are required" });
   }
 
-  const load = db.prepare("SELECT * FROM loads WHERE load_id = ?").get(load_id);
-  if (!load) return res.status(404).json({ error: "Load not found" });
-  if (load.status !== "available") {
-    return res.json({ action: "unavailable", message: "This load is no longer available." });
-  }
+  try {
+    const { Item: load } = await db.send(new GetCommand({
+      TableName: LOADS_TABLE,
+      Key: { load_id }
+    }));
 
-  const priorOffers = db
-    .prepare("SELECT COUNT(*) AS cnt FROM offers WHERE load_id = ? AND mc_number = ?")
-    .get(load_id, mc_number);
-  const round = (priorOffers?.cnt || 0) + 1;
+    if (!load) return res.status(404).json({ error: "Load not found" });
+    if (load.status !== "available") {
+      return res.json({ action: "unavailable", message: "This load is no longer available." });
+    }
 
-  const floor = calcFloor(load.loadboard_rate);
-  const ceiling = calcCeiling(load.loadboard_rate);
+    const { Items: priorOffers } = await db.send(new ScanCommand({
+      TableName: OFFERS_TABLE,
+      FilterExpression: "load_id = :lid AND mc_number = :mc",
+      ExpressionAttributeValues: { ":lid": load_id, ":mc": mc_number }
+    }));
+    
+    const round = (priorOffers?.length || 0) + 1;
 
-  if (!carrier_rate) {
-    return res.json({
-      action: "offer",
-      rate: floor,
-      load_id,
-      round: 1,
-      message: `Offer $${floor} to the carrier.`,
-    });
-  }
+    const floor = calcFloor(load.loadboard_rate);
+    const ceiling = calcCeiling(load.loadboard_rate);
 
-  const carrierRate = Number(carrier_rate);
+    if (!carrier_rate) {
+      return res.json({
+        action: "offer",
+        rate: floor,
+        load_id,
+        round: 1,
+        message: `Offer $${floor} to the carrier.`,
+      });
+    }
 
-  if (carrierRate <= floor) {
-    return res.json({
-      action: "accept",
-      rate: carrierRate,
-      load_id,
-      round,
-      message: `Accept $${carrierRate}. It's at or below our initial offer.`,
-    });
-  }
+    const carrierRate = Number(carrier_rate);
 
-  if (carrierRate <= ceiling) {
+    if (carrierRate <= floor) {
+      return res.json({
+        action: "accept",
+        rate: carrierRate,
+        load_id,
+        round,
+        message: `Accept $${carrierRate}. It's at or below our initial offer.`,
+      });
+    }
+
+    if (carrierRate <= ceiling) {
+      if (round >= MAX_ROUNDS) {
+        return res.json({
+          action: "accept",
+          rate: carrierRate,
+          load_id,
+          round,
+          message: `Accept $${carrierRate}. We've reached round ${round} and it's within our ceiling.`,
+        });
+      }
+
+      const progress = Math.min(round / MAX_ROUNDS, 0.8);
+      const counterRate = Math.round(floor + (carrierRate - floor) * progress);
+
+      if (carrierRate - counterRate < 50) {
+        return res.json({
+          action: "accept",
+          rate: carrierRate,
+          load_id,
+          round,
+          message: `Accept $${carrierRate}. The gap is too small to keep negotiating.`,
+        });
+      }
+
+      return res.json({
+        action: "counter",
+        rate: counterRate,
+        carrier_rate: carrierRate,
+        load_id,
+        round,
+        next_round: round + 1,
+        message: `Counter at $${counterRate}. Carrier asked for $${carrierRate}.`,
+      });
+    }
+
     if (round >= MAX_ROUNDS) {
       return res.json({
-        action: "accept",
-        rate: carrierRate,
+        action: "final_offer",
+        rate: ceiling,
+        carrier_rate: carrierRate,
         load_id,
         round,
-        message: `Accept $${carrierRate}. We've reached round ${round} and it's within our ceiling.`,
+        message: `Final offer at $${ceiling}. Carrier wants $${carrierRate} which is above our max. If they won't take $${ceiling}, suggest trying a different load or transferring to a rep.`,
       });
     }
 
-    const progress = Math.min(round / MAX_ROUNDS, 0.8);
-    const counterRate = Math.round(floor + (carrierRate - floor) * progress);
-
-    if (carrierRate - counterRate < 50) {
-      return res.json({
-        action: "accept",
-        rate: carrierRate,
-        load_id,
-        round,
-        message: `Accept $${carrierRate}. The gap is too small to keep negotiating.`,
-      });
-    }
+    const aggression = Math.min(round / MAX_ROUNDS, 0.7);
+    const counterRate = Math.round(floor + (ceiling - floor) * aggression);
 
     return res.json({
       action: "counter",
@@ -89,33 +123,12 @@ router.post("/", (req, res) => {
       load_id,
       round,
       next_round: round + 1,
-      message: `Counter at $${counterRate}. Carrier asked for $${carrierRate}.`,
+      message: `Counter at $${counterRate}. Carrier wants $${carrierRate} which is above our max of $${ceiling}. Try to bring them down.`,
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
-
-  if (round >= MAX_ROUNDS) {
-    return res.json({
-      action: "final_offer",
-      rate: ceiling,
-      carrier_rate: carrierRate,
-      load_id,
-      round,
-      message: `Final offer at $${ceiling}. Carrier wants $${carrierRate} which is above our max. If they won't take $${ceiling}, suggest trying a different load or transferring to a rep.`,
-    });
-  }
-
-  const aggression = Math.min(round / MAX_ROUNDS, 0.7);
-  const counterRate = Math.round(floor + (ceiling - floor) * aggression);
-
-  return res.json({
-    action: "counter",
-    rate: counterRate,
-    carrier_rate: carrierRate,
-    load_id,
-    round,
-    next_round: round + 1,
-    message: `Counter at $${counterRate}. Carrier wants $${carrierRate} which is above our max of $${ceiling}. Try to bring them down.`,
-  });
 });
 
 export default router;

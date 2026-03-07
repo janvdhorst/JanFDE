@@ -1,4 +1,5 @@
-import db from "./db.js";
+import db, { LOADS_TABLE } from "./db.js";
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const LOADS = [
   {
@@ -363,20 +364,19 @@ const LOADS = [
   },
 ];
 
-const insert = db.prepare(`
-  INSERT OR REPLACE INTO loads
-    (load_id, origin, destination, pickup_datetime, delivery_datetime,
-     equipment_type, loadboard_rate, notes, weight, commodity_type,
-     num_of_pieces, miles, dimensions, lat, lng, status)
-  VALUES
-    (@load_id, @origin, @destination, @pickup_datetime, @delivery_datetime,
-     @equipment_type, @loadboard_rate, @notes, @weight, @commodity_type,
-     @num_of_pieces, @miles, @dimensions, @lat, @lng, @status)
-`);
-
-const seedAll = db.transaction(() => {
-  for (const load of LOADS) insert.run(load);
-});
+async function seedAll() {
+  console.log("Seeding loads to DynamoDB...");
+  for (const load of LOADS) {
+    try {
+      await db.send(new PutCommand({
+        TableName: LOADS_TABLE,
+        Item: load
+      }));
+    } catch (err) {
+      console.error(`Failed to seed load ${load.load_id}:`, err);
+    }
+  }
+  console.log(`Seeded ${LOADS.length} loads`);
+}
 
 seedAll();
-console.log(`Seeded ${LOADS.length} loads`);

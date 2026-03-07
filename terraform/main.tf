@@ -84,6 +84,76 @@ resource "aws_iam_role" "apprunner_instance" {
   assume_role_policy = data.aws_iam_policy_document.apprunner_instance_assume.json
 }
 
+resource "aws_iam_role_policy" "apprunner_dynamodb" {
+  name = "${var.app_name}-dynamodb-access"
+  role = aws_iam_role.apprunner_instance.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Scan",
+          "dynamodb:Query"
+        ]
+        Resource = [
+          aws_dynamodb_table.loads.arn,
+          aws_dynamodb_table.offers.arn,
+          "${aws_dynamodb_table.loads.arn}/index/*",
+          "${aws_dynamodb_table.offers.arn}/index/*"
+        ]
+      }
+    ]
+  })
+}
+
+# -----------------------------------------------------------------------------
+# DynamoDB Tables
+# -----------------------------------------------------------------------------
+
+resource "aws_dynamodb_table" "loads" {
+  name         = "${var.app_name}-loads"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "load_id"
+
+  attribute {
+    name = "load_id"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_table" "offers" {
+  name         = "${var.app_name}-offers"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  attribute {
+    name = "mc_number"
+    type = "S"
+  }
+
+  attribute {
+    name = "created_at"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "mc_number-created_at-index"
+    hash_key        = "mc_number"
+    range_key       = "created_at"
+    projection_type = "ALL"
+  }
+}
+
 # -----------------------------------------------------------------------------
 # App Runner Service
 # -----------------------------------------------------------------------------
@@ -104,13 +174,16 @@ resource "aws_apprunner_service" "app" {
         port = tostring(var.container_port)
 
         runtime_environment_variables = {
-          API_KEY_SECRET = var.api_key_secret
-          FMCSA_API_KEY  = var.fmcsa_api_key
+          API_KEY_SECRET        = var.api_key_secret
+          FMCSA_API_KEY         = var.fmcsa_api_key
+          DYNAMODB_LOADS_TABLE  = aws_dynamodb_table.loads.name
+          DYNAMODB_OFFERS_TABLE = aws_dynamodb_table.offers.name
+          AWS_REGION            = var.aws_region
         }
       }
     }
 
-    auto_deployments_enabled = true
+    auto_deployments_enabled = false
   }
 
   instance_configuration {
