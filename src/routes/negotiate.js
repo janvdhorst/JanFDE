@@ -4,16 +4,19 @@ import { GetCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
 const router = Router();
 
-const INITIAL_DISCOUNT = 0.05;
-const MAX_PREMIUM = 0.10;
-const MAX_ROUNDS = 4;
+const FLOOR_PCT = 0.85;
+const STEP2_PCT = 0.90;
+const TARGET_PCT = 0.95;
+const CEILING_PCT = 1.00;
+const MAX_ROUNDS = 3;
 
-function calcFloor(loadboardRate) {
-  return Math.round(loadboardRate * (1 - INITIAL_DISCOUNT));
-}
-
-function calcCeiling(loadboardRate) {
-  return Math.round(loadboardRate * (1 + MAX_PREMIUM));
+function buildLadder(loadboardRate) {
+  return {
+    floor: Math.round(loadboardRate * FLOOR_PCT),
+    step2: Math.round(loadboardRate * STEP2_PCT),
+    target: Math.round(loadboardRate * TARGET_PCT),
+    ceiling: Math.round(loadboardRate * CEILING_PCT),
+  };
 }
 
 router.post("/", async (req, res) => {
@@ -39,11 +42,10 @@ router.post("/", async (req, res) => {
       FilterExpression: "load_id = :lid AND mc_number = :mc",
       ExpressionAttributeValues: { ":lid": load_id, ":mc": mc_number }
     }));
-    
-    const round = (priorOffers?.length || 0) + 1;
 
-    const floor = calcFloor(load.loadboard_rate);
-    const ceiling = calcCeiling(load.loadboard_rate);
+    const round = (priorOffers?.length || 0) + 1;
+    const rate = Number(load.loadboard_rate);
+    const { floor, step2, target, ceiling } = buildLadder(rate);
 
     if (!carrier_rate) {
       return res.json({
@@ -63,67 +65,94 @@ router.post("/", async (req, res) => {
         rate: carrierRate,
         load_id,
         round,
-        message: `Accept $${carrierRate}. It's at or below our initial offer.`,
+        message: `Accept $${carrierRate}. It's at or below our opening offer.`,
       });
     }
 
-    if (carrierRate <= ceiling) {
-      if (round >= MAX_ROUNDS) {
-        return res.json({
-          action: "accept",
-          rate: carrierRate,
-          load_id,
-          round,
-          message: `Accept $${carrierRate}. We've reached round ${round} and it's within our ceiling.`,
-        });
-      }
+    // round counts prior log_offer records + 1.
+    // The prompt always calls log_offer BEFORE negotiate, so:
+    //   round 2 = 1st counter, round 3 = 2nd counter, round 4 = 3rd counter
 
-      const progress = Math.min(round / MAX_ROUNDS, 0.8);
-      const counterRate = Math.round(floor + (carrierRate - floor) * progress);
-
-      if (carrierRate - counterRate < 50) {
-        return res.json({
-          action: "accept",
-          rate: carrierRate,
-          load_id,
-          round,
-          message: `Accept $${carrierRate}. The gap is too small to keep negotiating.`,
-        });
-      }
-
+    if (round <= 2) {
       return res.json({
         action: "counter",
-        rate: counterRate,
+        rate: step2,
         carrier_rate: carrierRate,
         load_id,
         round,
         next_round: round + 1,
-        message: `Counter at $${counterRate}. Carrier asked for $${carrierRate}.`,
+        message: `Counter at $${step2}. Never accept on the first counter — always negotiate.`,
       });
     }
 
-    if (round >= MAX_ROUNDS) {
+    if (round === 3) {
+      if (carrierRate <= step2) {
+        return res.json({
+          action: "accept",
+          rate: carrierRate,
+          load_id,
+          round,
+          message: `Accept $${carrierRate}. Carrier came down to our second step.`,
+        });
+      }
+      return res.json({
+        action: "counter",
+        rate: target,
+        carrier_rate: carrierRate,
+        load_id,
+        round,
+        next_round: 4,
+        message: `Counter at $${target}. Push back — this is a strong offer.`,
+      });
+    }
+
+    if (round === 4) {
+      if (carrierRate <= target) {
+        return res.json({
+          action: "accept",
+          rate: carrierRate,
+          load_id,
+          round,
+          message: `Accept $${carrierRate}. It's at or below our target.`,
+        });
+      }
+      if (carrierRate <= ceiling) {
+        return res.json({
+          action: "final_offer",
+          rate: carrierRate,
+          carrier_rate: carrierRate,
+          load_id,
+          round,
+          message: `Final offer: accept $${carrierRate}. Tell them this is the absolute best you can do.`,
+        });
+      }
       return res.json({
         action: "final_offer",
         rate: ceiling,
         carrier_rate: carrierRate,
         load_id,
         round,
-        message: `Final offer at $${ceiling}. Carrier wants $${carrierRate} which is above our max. If they won't take $${ceiling}, suggest trying a different load or transferring to a rep.`,
+        message: `Final offer at $${ceiling}. Carrier wants $${carrierRate} which is above market. If they won't take $${ceiling}, suggest a different lane.`,
       });
     }
 
-    const aggression = Math.min(round / MAX_ROUNDS, 0.7);
-    const counterRate = Math.round(floor + (ceiling - floor) * aggression);
+    if (carrierRate <= ceiling) {
+      return res.json({
+        action: "accept",
+        rate: carrierRate,
+        load_id,
+        round,
+        message: `Accept $${carrierRate}. We've exhausted negotiation rounds and it's within our limit.`,
+      });
+    }
 
     return res.json({
-      action: "counter",
-      rate: counterRate,
+      action: "final_offer",
+      rate: ceiling,
       carrier_rate: carrierRate,
       load_id,
       round,
-      next_round: round + 1,
-      message: `Counter at $${counterRate}. Carrier wants $${carrierRate} which is above our max of $${ceiling}. Try to bring them down.`,
+      message: `Final offer at $${ceiling}. Carrier wants $${carrierRate}. This is our absolute maximum — take it or try a different lane.`,
     });
   } catch (err) {
     console.error(err);

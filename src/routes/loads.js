@@ -83,6 +83,9 @@ router.get("/", async (req, res) => {
     }
     if (pickup_date) {
       loads = loads.filter(l => l.pickup_datetime?.startsWith(pickup_date));
+    } else {
+      const today = new Date().toISOString().slice(0, 10);
+      loads = loads.filter(l => !l.pickup_datetime || l.pickup_datetime.slice(0, 10) >= today);
     }
     if (useGeo) {
       loads = loads.filter(l => l.lat != null && l.lng != null);
@@ -107,23 +110,30 @@ router.get("/", async (req, res) => {
     loads = loads.slice(0, Math.min(Number(limit), 100));
 
     loads = loads.map(load => {
-      const offerRate = Math.round(load.loadboard_rate * 0.95);
-      const maxRate = Math.round(load.loadboard_rate * 1.10);
+      const offerRate = Math.round(Number(load.loadboard_rate) * 0.85);
       const deadhead = load.deadhead_miles || 0;
-      const totalMiles = load.miles + deadhead;
+      const totalMiles = Number(load.miles) + deadhead;
       const effectiveRpm = totalMiles > 0 ? (offerRate / totalMiles).toFixed(2) : 0;
 
       return {
         ...load,
         offer_rate: offerRate,
-        max_rate: maxRate,
-        effective_rpm: Number(effectiveRpm)
+        effective_rpm: Number(effectiveRpm),
       };
     });
 
     loads = loads.slice(0, 5);
 
-    res.json({ count: loads.length, loads });
+    const search_meta = {
+      geo_search: useGeo,
+      radius_miles: useGeo ? DEADHEAD_RADIUS : null,
+      origin_searched: origin || null,
+    };
+    if (useGeo && loads.length === 0) {
+      search_meta.note = `No loads found within ${DEADHEAD_RADIUS} miles of ${origin}. The entire region has been searched — do not retry with nearby cities.`;
+    }
+
+    res.json({ count: loads.length, search_meta, loads });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch loads" });

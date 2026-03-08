@@ -160,6 +160,13 @@ else
   terraform -chdir="${TF_DIR}" apply -auto-approve \
     -var="image_tag=${IMAGE_TAG}"
 
+  APP_RUNNER_SERVICE_ARN="$(tf_output_raw apprunner_service_arn)"
+  if [[ -n "${APP_RUNNER_SERVICE_ARN}" ]]; then
+    echo "==> Forcing App Runner to pull latest image..."
+    aws apprunner start-deployment --region "${AWS_REGION}" \
+      --service-arn "${APP_RUNNER_SERVICE_ARN}" --output json
+  fi
+
   echo ""
   echo "==> Deployment triggered. App Runner is now deploying image tag: ${IMAGE_TAG}"
   echo "    Service URL: $(terraform -chdir="${TF_DIR}" output -raw service_url)"

@@ -42,8 +42,15 @@ router.post("/", async (req, res) => {
 
     if (!load) return res.status(404).json({ error: "Load not found" });
 
-    const resolvedFinalRate = final_rate ?? agreed_rate ?? null;
-    const resolvedRounds = rounds ?? negotiation_rounds ?? 1;
+    const toNum = (v) => { if (v == null || v === "") return null; const n = Number(v); return isNaN(n) ? null : n; };
+    const resolvedFinalRate = toNum(final_rate) ?? toNum(agreed_rate) ?? null;
+
+    const { Items: priorOffers } = await db.send(new ScanCommand({
+      TableName: OFFERS_TABLE,
+      FilterExpression: "load_id = :lid AND mc_number = :mc",
+      ExpressionAttributeValues: { ":lid": load_id, ":mc": mc_number }
+    }));
+    const resolvedRounds = (priorOffers?.length || 0) + 1;
     const resolvedOutcome = call_outcome || classifier_outcome || null;
     const resolvedSentiment = carrier_sentiment || realtime_sentiment || null;
 
@@ -58,8 +65,8 @@ router.post("/", async (req, res) => {
         mc_number,
         carrier_name: carrier_name || null,
         session_id: session_id || null,
-        offered_rate,
-        counter_rate: counter_rate ?? null,
+        offered_rate: toNum(offered_rate),
+        counter_rate: toNum(counter_rate),
         final_rate: resolvedFinalRate,
         status,
         rounds: resolvedRounds,
@@ -103,7 +110,7 @@ router.post("/finalize", async (req, res) => {
     return res.status(400).json({ error: "session_id is required" });
   }
 
-  function toNum(v) { const n = Number(v); return isNaN(n) ? null : n; }
+  function toNum(v) { if (v == null || v === "") return null; const n = Number(v); return isNaN(n) ? null : n; }
   function toBool(v) { if (v === "true" || v === true) return true; if (v === "false" || v === false) return false; return null; }
   function toStr(v) { return v != null && v !== "" ? String(v) : null; }
 
@@ -147,6 +154,7 @@ router.post("/finalize", async (req, res) => {
     addField("sentiment", toStr(req.body.sentiment));
     addField("call_result", toStr(req.body.call_result));
     addField("user_behavior", toStr(req.body.user_behavior));
+    addField("equipment_type", toStr(req.body.equipment_type));
 
     if (updateParts.length === 0) {
       return res.json({ id: latest.id, session_id, updated: false, message: "No fields to update" });

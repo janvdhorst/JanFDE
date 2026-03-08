@@ -1,4 +1,6 @@
 import { Router } from "express";
+import db, { OFFERS_TABLE } from "../db.js";
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const router = Router();
 const FMCSA_KEY = process.env.FMCSA_API_KEY;
@@ -63,16 +65,33 @@ router.get("/verify/:mc_number", async (req, res) => {
   const cleaned = req.params.mc_number.replace(/\D/g, "");
   if (!cleaned) return res.status(400).json({ error: "Invalid MC number" });
 
+  let result;
   if (FMCSA_KEY) {
     try {
-      const result = await queryFmcsa(cleaned);
-      if (result) return res.json(result);
+      result = await queryFmcsa(cleaned);
     } catch (err) {
       console.error(`FMCSA lookup failed for MC ${cleaned}, falling back to mock:`, err.message);
     }
   }
+  if (!result) result = mockCarrier(cleaned);
 
-  res.json(mockCarrier(cleaned));
+  try {
+    await db.send(new PutCommand({
+      TableName: OFFERS_TABLE,
+      Item: {
+        id: `verify-${cleaned}-${Date.now()}`,
+        type: "verify",
+        mc_number: cleaned,
+        carrier_name: result.legal_name || result.dba_name || null,
+        verified: result.verified,
+        created_at: new Date().toISOString(),
+      },
+    }));
+  } catch (err) {
+    console.error("Failed to log verification:", err.message);
+  }
+
+  res.json(result);
 });
 
 export default router;

@@ -8,6 +8,7 @@ import carrierRouter from "./routes/carrier.js";
 import offersRouter from "./routes/offers.js";
 import dashboardRouter from "./routes/dashboard.js";
 import negotiateRouter from "./routes/negotiate.js";
+import timezoneRouter from "./routes/timezone.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +48,7 @@ app.get("/", (_req, res) => {
       carrier_verify: "GET /carrier/verify/:mc_number",
       offers: "GET|POST /offers, POST /offers/finalize",
       negotiate: "POST /negotiate",
+      timezone: "GET /timezone?city=Chicago,IL",
       dashboard: "GET /dashboard/metrics",
       health: "GET /health",
     },
@@ -58,6 +60,7 @@ app.use("/carrier", carrierRouter);
 app.use("/offers", offersRouter);
 app.use("/negotiate", negotiateRouter);
 app.use("/dashboard", dashboardRouter);
+app.use("/timezone", timezoneRouter);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Listening on port ${PORT}`);

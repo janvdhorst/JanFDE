@@ -1,222 +1,447 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="night">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Carrier Sales Agent — Dashboard</title>
+  <title>Carrier Sales AI — Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    .kpi-card { transition: transform 0.15s; }
-    .kpi-card:hover { transform: translateY(-2px); }
-    .funnel-step { position: relative; }
-    .funnel-bar { transition: width 0.6s ease; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: oklch(var(--n)); border-radius: 3px; }
+    .leaflet-container { background: oklch(var(--b1)) !important; border-radius: 0.75rem; }
+    .leaflet-control-attribution { background: oklch(var(--b2) / 0.85) !important; color: oklch(var(--bc) / 0.4) !important; font-size: 10px !important; }
+    .leaflet-control-attribution a { color: oklch(var(--bc) / 0.4) !important; }
+    .leaflet-control-zoom a { background: oklch(var(--b2)) !important; color: oklch(var(--bc) / 0.6) !important; border-color: oklch(var(--b3)) !important; }
+    .leaflet-control-zoom a:hover { background: oklch(var(--b3)) !important; }
+    .funnel-bar { transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+    .activity-item { transition: background 0.15s; }
+    .activity-item:hover { background: oklch(var(--b3) / 0.3); }
+    .stat-value { font-feature-settings: 'tnum'; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-  <div class="max-w-7xl mx-auto px-4 py-8">
-    <div class="flex items-center justify-between mb-8">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Carrier Sales Agent</h1>
-        <p class="text-sm text-gray-500 mt-1">Performance Dashboard</p>
-      </div>
-      <button onclick="fetchMetrics()" class="text-sm bg-white border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-50 text-gray-700">Refresh</button>
-    </div>
+<body class="min-h-screen">
+  <div class="max-w-[1440px] mx-auto px-6 py-8">
 
-    <!-- Row 1: Executive KPIs -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Calls</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-calls">—</p>
+    <!-- Header -->
+    <div class="navbar bg-base-200 rounded-box mb-6 px-6">
+      <div class="flex-1">
+        <div>
+          <h1 class="text-xl font-bold">Carrier Sales AI</h1>
+          <p class="text-xs opacity-50">Live Performance Dashboard</p>
+        </div>
       </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Booking Rate</p>
-        <p class="text-2xl font-bold text-emerald-600 mt-1" id="kpi-booking-rate">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Revenue Booked</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-revenue">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Margin Preserved</p>
-        <p class="text-2xl font-bold text-blue-600 mt-1" id="kpi-margin">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Duration</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-duration">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">1st-Offer Accept</p>
-        <p class="text-2xl font-bold text-purple-600 mt-1" id="kpi-first-offer">—</p>
+      <div class="flex-none gap-3">
+        <span class="text-xs opacity-40" id="last-updated"></span>
+        <button onclick="fetchMetrics()" class="btn btn-ghost btn-sm gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          Refresh
+        </button>
       </div>
     </div>
 
-    <!-- Row 2: Funnel -->
-    <div class="bg-white p-6 rounded-xl shadow-sm border mb-6">
-      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Conversion Funnel</h3>
-      <div id="funnel-container" class="space-y-2"></div>
-    </div>
-
-    <!-- Row 3: Rate Waterfall + Calls by Hour -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Rate Waterfall (Booked Loads)</h3>
-        <div class="h-64"><canvas id="waterfallChart"></canvas></div>
+    <!-- Row 1: KPI Stats -->
+    <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-200 w-full mb-6">
+      <div class="stat">
+        <div class="stat-title">Total Calls</div>
+        <div class="stat-value text-primary" id="kpi-calls">0</div>
+        <div class="stat-desc">inbound carrier calls</div>
       </div>
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Calls by Hour of Day (UTC)</h3>
-        <div class="h-64"><canvas id="hourChart"></canvas></div>
+      <div class="stat">
+        <div class="stat-title">Booking Rate</div>
+        <div class="stat-value text-success" id="kpi-booking">0%</div>
+        <div class="stat-desc">calls → bookings</div>
       </div>
-    </div>
-
-    <!-- Row 4: Outcomes + Sentiment -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Call Outcomes</h3>
-        <div class="h-64"><canvas id="outcomesChart"></canvas></div>
+      <div class="stat">
+        <div class="stat-title">Total Savings</div>
+        <div class="stat-value text-info" id="kpi-savings">$0</div>
+        <div class="stat-desc">vs loadboard rates</div>
       </div>
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Carrier Sentiment</h3>
-        <div class="h-64"><canvas id="sentimentChart"></canvas></div>
+      <div class="stat">
+        <div class="stat-title">Avg Call Duration</div>
+        <div class="stat-value" id="kpi-duration">—</div>
+        <div class="stat-desc">per conversation</div>
       </div>
     </div>
 
-    <!-- Row 4b: User Behavior -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">User Behavior</h3>
-        <div class="h-64"><canvas id="behaviorChart"></canvas></div>
+    <!-- Row 2: Conversion Funnel -->
+    <div class="card bg-base-200 shadow-xl mb-6">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Conversion Funnel</h2>
+        <div id="funnel-container" class="space-y-2 mt-2"></div>
       </div>
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Load Board Status</h3>
-        <div class="grid grid-cols-2 gap-4 h-64 content-center">
-          <div class="text-center">
-            <p class="text-xs text-gray-500 uppercase">Available</p>
-            <p class="text-3xl font-bold text-blue-600" id="kpi-loads-available">—</p>
+    </div>
+
+    <!-- Row 3: Map + Activity Feed -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+      <div class="lg:col-span-7 card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Load Origins</h2>
+          <div id="map" class="h-[400px] rounded-xl overflow-hidden mt-1"></div>
+          <div class="flex gap-4 mt-3">
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-success"></span><span class="text-xs opacity-50">Booked</span></div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-info"></span><span class="text-xs opacity-50">Available</span></div>
           </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 uppercase">Booked</p>
-            <p class="text-3xl font-bold text-emerald-600" id="kpi-loads-booked">—</p>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 uppercase">Empty Board Rate</p>
-            <p class="text-3xl font-bold text-orange-500" id="kpi-empty-board">—</p>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 uppercase">Revenue / Call</p>
-            <p class="text-3xl font-bold text-gray-900" id="kpi-rev-per-call">—</p>
+        </div>
+      </div>
+      <div class="lg:col-span-5 card bg-base-200 shadow-xl">
+        <div class="card-body p-4">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold px-2">Recent Activity</h2>
+          <div id="activity-feed" class="flex-1 overflow-y-auto space-y-0.5 max-h-[430px] mt-1">
+            <p class="text-sm opacity-30 text-center py-16">No activity yet</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Row 5: Top Lanes + Top Origins -->
+    <!-- Row 4: Negotiation Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Lanes</h3>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead><tr class="text-left text-gray-500 border-b">
-              <th class="pb-2 font-medium">Lane</th>
-              <th class="pb-2 font-medium text-right">Calls</th>
-              <th class="pb-2 font-medium text-right">Booked</th>
-              <th class="pb-2 font-medium text-right">Avg List</th>
-              <th class="pb-2 font-medium text-right">Avg Final</th>
-            </tr></thead>
-            <tbody id="lanes-tbody"></tbody>
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Rate Waterfall <span class="normal-case font-normal opacity-70">(booked avg)</span></h2>
+          <div class="h-56 mt-2"><canvas id="waterfallChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Negotiation Rounds</h2>
+          <div class="h-56 mt-2"><canvas id="roundsChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 5: Top Lanes + Outcomes -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+      <div class="lg:col-span-7 card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Top Lanes</h2>
+          <div class="overflow-x-auto mt-1">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Lane</th>
+                  <th class="text-right">Deals</th>
+                  <th class="text-right">Booked</th>
+                  <th class="text-right">Avg Final</th>
+                  <th class="text-right">Savings</th>
+                </tr>
+              </thead>
+              <tbody id="lanes-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="lg:col-span-5 card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Call Outcomes</h2>
+          <div class="h-56 mt-2"><canvas id="outcomesChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 6: Top Carriers -->
+    <div class="card bg-base-200 shadow-xl">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Top Carriers</h2>
+        <div class="overflow-x-auto mt-1">
+          <table class="table table-sm table-zebra">
+            <thead>
+              <tr>
+                <th>MC Number</th>
+                <th>Carrier</th>
+                <th class="text-right">Calls</th>
+                <th class="text-right">Bookings</th>
+                <th class="text-right">Conversion</th>
+              </tr>
+            </thead>
+            <tbody id="carriers-tbody"></tbody>
           </table>
         </div>
-      </div>
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Origin Cities</h3>
-        <div class="h-64"><canvas id="originsChart"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Row 6: Equipment + Objections -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Equipment Demand</h3>
-        <div class="h-64"><canvas id="equipmentChart"></canvas></div>
-      </div>
-      <div class="bg-white p-6 rounded-xl shadow-sm border">
-        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Carrier Objections</h3>
-        <div class="h-64"><canvas id="objectionsChart"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Row 7: Negotiation Stats + Speed Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Rounds</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-rounds">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Avg Discount Given</p>
-        <p class="text-2xl font-bold text-orange-600 mt-1" id="kpi-discount">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">P90 Latency</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-latency">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Interruption Rate</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-interruption">—</p>
-      </div>
-    </div>
-
-    <!-- Row 8: Carrier Intelligence -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Unique Carriers</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-unique-carriers">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Repeat Caller Rate</p>
-        <p class="text-2xl font-bold text-indigo-600 mt-1" id="kpi-repeat">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Board Coverage</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1" id="kpi-coverage">—</p>
-      </div>
-      <div class="kpi-card bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Off-Hours Calls</p>
-        <p class="text-2xl font-bold text-teal-600 mt-1" id="kpi-offhours">—</p>
-      </div>
-    </div>
-
-    <!-- Row 9: Top Carriers Table -->
-    <div class="bg-white p-6 rounded-xl shadow-sm border mb-6">
-      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Top Carriers</h3>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead><tr class="text-left text-gray-500 border-b">
-            <th class="pb-2 font-medium">MC #</th>
-            <th class="pb-2 font-medium">Carrier Name</th>
-            <th class="pb-2 font-medium text-right">Calls</th>
-            <th class="pb-2 font-medium text-right">Bookings</th>
-          </tr></thead>
-          <tbody id="carriers-tbody"></tbody>
-        </table>
       </div>
     </div>
 
   </div>
 
   <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const apiKey = urlParams.get('api_key') || '';
-
-    const COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#6B7280','#14B8A6','#F97316','#6366F1'];
+    const apiKey = new URLSearchParams(window.location.search).get("api_key") || "";
     const charts = {};
+    let map = null;
+    let markersLayer = null;
 
-    function destroyChart(key) { if (charts[key]) { charts[key].destroy(); charts[key] = null; } }
+    function destroyChart(k) { if (charts[k]) { charts[k].destroy(); charts[k] = null; } }
 
-    function fmt$(n) { return n >= 1000 ? `$${(n/1000).toFixed(1)}k` : `$${n}`; }
+    function animateValue(el, target, opts = {}) {
+      const { prefix = "", suffix = "", duration = 900, decimals = 0 } = opts;
+      const start = performance.now();
+      (function tick(now) {
+        const p = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        const val = target * eased;
+        el.textContent = prefix + (decimals > 0 ? val.toFixed(decimals) : Math.round(val).toLocaleString()) + suffix;
+        if (p < 1) requestAnimationFrame(tick);
+      })(performance.now());
+    }
+
     function fmtDuration(sec) {
-      if (!sec) return '—';
+      if (!sec) return "—";
       const m = Math.floor(sec / 60), s = sec % 60;
       return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+
+    function timeAgo(iso) {
+      if (!iso) return "";
+      const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    }
+
+    function statusBadge(status) {
+      const s = (status || "unknown").toLowerCase();
+      if (s === "accepted") return '<div class="badge badge-success badge-sm gap-1">Booked</div>';
+      if (s === "pending") return '<div class="badge badge-warning badge-sm gap-1">Pending</div>';
+      if (s.includes("reject")) return '<div class="badge badge-error badge-sm gap-1">Rejected</div>';
+      return `<div class="badge badge-ghost badge-sm">${s}</div>`;
+    }
+
+    /* ── Map ── */
+    function initMap() {
+      if (map) return;
+      map = L.map("map", { zoomControl: true, scrollWheelZoom: true }).setView([39.5, -98.3], 4);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 18,
+      }).addTo(map);
+      markersLayer = L.layerGroup().addTo(map);
+    }
+
+    function renderMap(loadMap) {
+      initMap();
+      markersLayer.clearLayers();
+      if (!loadMap.length) return;
+      for (const l of loadMap) {
+        const isBooked = l.status === "booked";
+        const color = isBooked ? "#4ade80" : "#38bdf8";
+        const marker = L.circleMarker([l.lat, l.lng], {
+          radius: isBooked ? 8 : 6,
+          fillColor: color,
+          fillOpacity: 0.8,
+          color: color,
+          weight: isBooked ? 2 : 1,
+          opacity: 0.3,
+        });
+        const pickupStr = l.pickup_datetime ? new Date(l.pickup_datetime).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+        marker.bindPopup(`
+          <div style="font-family:Inter,sans-serif;font-size:13px;min-width:200px">
+            <div style="font-weight:700;margin-bottom:2px">${l.origin}</div>
+            <div style="opacity:0.6;margin-bottom:8px">→ ${l.destination}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="opacity:0.5">Rate</span><span style="font-weight:600">$${l.loadboard_rate.toLocaleString()}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="opacity:0.5">Pickup</span><span>${pickupStr}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="opacity:0.5">Equipment</span><span>${l.equipment_type || "—"}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="opacity:0.5">Status</span><span style="font-weight:600;color:${isBooked ? "#4ade80" : "#38bdf8"}">${l.status}</span>
+            </div>
+          </div>
+        `);
+        markersLayer.addLayer(marker);
+      }
+    }
+
+    /* ── Funnel ── */
+    function renderFunnel(f) {
+      const steps = [
+        { label: "Total Calls", value: f.total_calls, cls: "progress-primary" },
+        { label: "Verified", value: f.verified, cls: "progress-secondary" },
+        { label: "Loads Found", value: f.loads_found, cls: "progress-accent" },
+        { label: "Negotiated", value: f.negotiated, cls: "progress-warning" },
+        { label: "Booked", value: f.booked, cls: "progress-success" },
+      ];
+      const max = steps[0].value || 1;
+      document.getElementById("funnel-container").innerHTML = steps.map((s, i) => {
+        const pct = Math.max((s.value / max) * 100, s.value > 0 ? 3 : 0);
+        const drop = i > 0 && steps[i - 1].value > 0 ? steps[i - 1].value - s.value : 0;
+        const dropPct = i > 0 && steps[i - 1].value > 0 ? ((drop / steps[i - 1].value) * 100).toFixed(0) : 0;
+        return `<div class="flex items-center gap-3">
+          <div class="w-24 text-xs opacity-50 text-right font-medium">${s.label}</div>
+          <div class="flex-1 relative">
+            <progress class="progress ${s.cls} h-7" value="${pct}" max="100"></progress>
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold">${s.value}</span>
+          </div>
+          ${i > 0 && drop > 0 ? `<span class="text-xs opacity-30 w-20 text-right">-${drop} (${dropPct}%)</span>` : '<span class="w-20"></span>'}
+        </div>`;
+      }).join("");
+    }
+
+    /* ── Charts ── */
+    const chartText = getComputedStyle(document.documentElement).getPropertyValue("--bc") ? "oklch(var(--bc) / 0.4)" : "#64748b";
+    Chart.defaults.color = "#64748b";
+    Chart.defaults.borderColor = "rgba(148,163,184,0.06)";
+    Chart.defaults.font.family = "Inter, sans-serif";
+
+    function renderWaterfall(n) {
+      destroyChart("waterfall");
+      const data = [n.avg_loadboard_rate, n.avg_our_offer, n.avg_final_rate];
+      const ctx = document.getElementById("waterfallChart");
+      if (!data.some(v => v > 0)) {
+        ctx.parentElement.innerHTML = '<p class="text-sm opacity-30 text-center flex items-center justify-center h-full">No booked deals yet</p>';
+        return;
+      }
+      charts.waterfall = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: ["Market Rate", "Our Offer", "Final Rate"],
+          datasets: [{ data, backgroundColor: ["#64748b", "#38bdf8", "#4ade80"], borderRadius: 8, barPercentage: 0.5 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => "$" + c.raw.toLocaleString() } } },
+          scales: {
+            y: { beginAtZero: false, grid: { display: false }, ticks: { callback: v => "$" + v.toLocaleString() } },
+            x: { grid: { display: false } },
+          },
+        },
+      });
+    }
+
+    function renderRounds(dist) {
+      destroyChart("rounds");
+      const labels = ["1 Round", "2 Rounds", "3 Rounds"];
+      const keys = ["1", "2", "3"];
+      const data = keys.map(k => dist[k] || 0);
+      const ctx = document.getElementById("roundsChart");
+      if (!data.some(v => v > 0)) {
+        ctx.parentElement.innerHTML = '<p class="text-sm opacity-30 text-center flex items-center justify-center h-full">No negotiation data yet</p>';
+        return;
+      }
+      charts.rounds = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{ data, backgroundColor: ["#4ade80", "#38bdf8", "#facc15"], borderRadius: 8, barPercentage: 0.5 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { display: false }, ticks: { stepSize: 1 } },
+            x: { grid: { display: false } },
+          },
+        },
+      });
+    }
+
+    function renderOutcomes(data) {
+      destroyChart("outcomes");
+      if (!data.length) return;
+      const palette = {
+        successful: "#4ade80", booked: "#4ade80", accepted: "#4ade80",
+        callback: "#facc15", pending: "#facc15",
+        rejected: "#f87171", failed: "#f87171",
+        not_authorized: "#fb923c",
+        no_loads_available: "#818cf8", no_match: "#818cf8",
+      };
+      const fallback = ["#a78bfa", "#f472b6", "#2dd4bf", "#94a3b8"];
+      let fi = 0;
+      const colors = data.map(d => palette[d.outcome] || fallback[fi++ % fallback.length]);
+      charts.outcomes = new Chart(document.getElementById("outcomesChart"), {
+        type: "doughnut",
+        data: {
+          labels: data.map(d => d.outcome.replace(/_/g, " ")),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: colors, borderWidth: 0 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: "60%",
+          plugins: { legend: { position: "right", labels: { boxWidth: 10, padding: 14, color: "#94a3b8" } } },
+        },
+      });
+    }
+
+    /* ── Activity Feed ── */
+    function renderActivity(items) {
+      const el = document.getElementById("activity-feed");
+      if (!items.length) { el.innerHTML = '<p class="text-sm opacity-30 text-center py-16">No activity yet</p>'; return; }
+      el.innerHTML = items.map(a => `
+        <div class="activity-item flex items-center gap-3 px-3 py-2.5 rounded-lg">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-0.5">
+              ${statusBadge(a.status)}
+              <span class="text-xs opacity-40 font-mono">MC ${a.mc_number || "—"}</span>
+            </div>
+            <p class="text-sm opacity-70 truncate">${a.lane}</p>
+            <div class="flex items-center gap-3 mt-0.5 text-xs opacity-40">
+              ${a.final_rate ? `<span>$${a.final_rate.toLocaleString()}</span>` : ""}
+              ${a.rounds ? `<span>${a.rounds} rd${a.rounds > 1 ? "s" : ""}</span>` : ""}
+              ${a.duration ? `<span>${fmtDuration(a.duration)}</span>` : ""}
+            </div>
+          </div>
+          <span class="text-xs opacity-30 whitespace-nowrap">${timeAgo(a.created_at)}</span>
+        </div>
+      `).join("");
+    }
+
+    /* ── Tables ── */
+    function renderLanes(lanes) {
+      const el = document.getElementById("lanes-tbody");
+      if (!lanes.length) { el.innerHTML = '<tr><td colspan="5" class="text-center opacity-30 py-8">No lane data yet</td></tr>'; return; }
+      el.innerHTML = lanes.map(l => `
+        <tr class="hover">
+          <td class="font-medium">${l.lane}</td>
+          <td class="text-right opacity-60">${l.deals}</td>
+          <td class="text-right opacity-60">${l.booked}</td>
+          <td class="text-right opacity-60">${l.avg_final ? "$" + l.avg_final.toLocaleString() : "—"}</td>
+          <td class="text-right font-medium ${l.savings > 0 ? "text-success" : "opacity-40"}">${l.savings > 0 ? "+$" + l.savings.toLocaleString() : "—"}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderCarriers(carriers) {
+      const el = document.getElementById("carriers-tbody");
+      if (!carriers.length) { el.innerHTML = '<tr><td colspan="5" class="text-center opacity-30 py-8">No carrier data yet</td></tr>'; return; }
+      el.innerHTML = carriers.map(c => {
+        const rate = c.calls > 0 ? Math.round((c.bookings / c.calls) * 100) : 0;
+        return `
+          <tr>
+            <td class="font-mono opacity-60">${c.mc_number}</td>
+            <td>${c.carrier_name || "—"}</td>
+            <td class="text-right opacity-60">${c.calls}</td>
+            <td class="text-right opacity-60">${c.bookings}</td>
+            <td class="text-right">
+              <div class="badge ${rate >= 50 ? "badge-success" : rate > 0 ? "badge-warning" : "badge-ghost"} badge-sm">${rate}%</div>
+            </td>
+          </tr>`;
+      }).join("");
+    }
+
+    /* ── Main ── */
+    function updateDashboard(d) {
+      animateValue(document.getElementById("kpi-calls"), d.kpis.total_calls);
+      animateValue(document.getElementById("kpi-booking"), d.kpis.booking_rate_pct, { suffix: "%", decimals: 1 });
+      animateValue(document.getElementById("kpi-savings"), d.kpis.total_savings, { prefix: "$" });
+      document.getElementById("kpi-duration").textContent = fmtDuration(d.kpis.avg_call_duration_sec);
+
+      renderFunnel(d.funnel);
+      renderMap(d.load_map);
+      renderActivity(d.recent_activity);
+      renderWaterfall(d.negotiation);
+      renderRounds(d.negotiation.round_distribution);
+      renderOutcomes(d.outcome_breakdown);
+      renderLanes(d.top_lanes);
+      renderCarriers(d.top_carriers);
+
+      document.getElementById("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
     }
 
     async function fetchMetrics() {
@@ -225,187 +450,8 @@
         if (!r.ok) throw new Error(r.statusText);
         updateDashboard(await r.json());
       } catch (e) {
-        console.error(e);
+        console.error("Failed to fetch metrics:", e);
       }
-    }
-
-    function updateDashboard(d) {
-      const k = d.kpis;
-      document.getElementById('kpi-calls').textContent = k.total_calls;
-      document.getElementById('kpi-booking-rate').textContent = `${k.booking_rate_pct}%`;
-      document.getElementById('kpi-revenue').textContent = fmt$(k.revenue_booked);
-      document.getElementById('kpi-margin').textContent = `${k.avg_margin_preserved_pct}%`;
-      document.getElementById('kpi-duration').textContent = fmtDuration(k.avg_call_duration_sec);
-      document.getElementById('kpi-first-offer').textContent = `${k.first_offer_accept_rate_pct}%`;
-
-      document.getElementById('kpi-rounds').textContent = d.negotiation.avg_rounds;
-      document.getElementById('kpi-discount').textContent = d.negotiation.avg_discount_given ? `+$${d.negotiation.avg_discount_given}` : '—';
-      document.getElementById('kpi-latency').textContent = d.speed.avg_p90_latency_ms ? `${d.speed.avg_p90_latency_ms}ms` : '—';
-      document.getElementById('kpi-interruption').textContent = d.speed.avg_interruption_rate_pct ? `${d.speed.avg_interruption_rate_pct}%` : '—';
-
-      document.getElementById('kpi-unique-carriers').textContent = d.carrier_intelligence.unique_carriers;
-      document.getElementById('kpi-repeat').textContent = `${d.carrier_intelligence.repeat_caller_rate_pct}%`;
-      document.getElementById('kpi-coverage').textContent = `${d.loads.board_coverage_pct}%`;
-      document.getElementById('kpi-offhours').textContent = `${d.carrier_intelligence.off_hours_rate_pct}%`;
-
-      renderFunnel(d.funnel);
-      renderWaterfall(d.negotiation);
-      renderHourChart(d.calls_by_hour);
-      renderDoughnut('outcomesChart', d.outcome_breakdown, 'outcome');
-      renderDoughnut('sentimentChart', d.sentiment_breakdown, 'sentiment');
-      renderDoughnut('behaviorChart', d.user_behavior_breakdown || [], 'behavior');
-
-      document.getElementById('kpi-loads-available').textContent = d.loads.available;
-      document.getElementById('kpi-loads-booked').textContent = d.loads.booked;
-      document.getElementById('kpi-empty-board').textContent = `${d.loads.empty_board_rate_pct}%`;
-      document.getElementById('kpi-rev-per-call').textContent = d.kpis.revenue_per_call ? fmt$(d.kpis.revenue_per_call) : '—';
-      renderOrigins(d.top_origins);
-      renderEquipment(d.equipment_breakdown);
-      renderObjections(d.top_objections);
-      renderLanesTable(d.top_lanes);
-      renderCarriersTable(d.top_carriers);
-    }
-
-    function renderFunnel(f) {
-      const steps = [
-        { label: 'Total Calls', value: f.total_calls },
-        { label: 'Verified', value: f.verified },
-        { label: 'Loads Found', value: f.loads_found },
-        { label: 'Offers Made', value: f.offers_made },
-        { label: 'Negotiations', value: f.negotiations },
-        { label: 'Booked', value: f.booked },
-      ];
-      const max = steps[0].value || 1;
-      const container = document.getElementById('funnel-container');
-      container.innerHTML = steps.map((s, i) => {
-        const pct = ((s.value / max) * 100).toFixed(0);
-        const dropoff = i > 0 ? steps[i-1].value - s.value : 0;
-        const dropPct = i > 0 && steps[i-1].value > 0 ? ((dropoff / steps[i-1].value) * 100).toFixed(0) : 0;
-        const barColor = i === steps.length - 1 ? 'bg-emerald-500' : 'bg-blue-500';
-        return `<div class="funnel-step flex items-center gap-3">
-          <div class="w-28 text-xs text-gray-600 text-right font-medium">${s.label}</div>
-          <div class="flex-1 bg-gray-100 rounded-full h-7 relative overflow-hidden">
-            <div class="funnel-bar ${barColor} h-full rounded-full flex items-center pl-3" style="width:${pct}%">
-              <span class="text-xs font-bold text-white">${s.value}</span>
-            </div>
-          </div>
-          ${i > 0 && dropoff > 0 ? `<span class="text-xs text-red-400 w-16">-${dropoff} (${dropPct}%)</span>` : '<span class="w-16"></span>'}
-        </div>`;
-      }).join('');
-    }
-
-    function renderWaterfall(n) {
-      destroyChart('waterfall');
-      charts.waterfall = new Chart(document.getElementById('waterfallChart'), {
-        type: 'bar',
-        data: {
-          labels: ['Loadboard Rate', 'Our Offer', 'Final Rate'],
-          datasets: [{
-            data: [n.avg_loadboard_rate, n.avg_offered_rate, n.avg_final_rate],
-            backgroundColor: ['#93C5FD', '#3B82F6', '#10B981'],
-            borderRadius: 6,
-            barPercentage: 0.5,
-          }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: false, ticks: { callback: v => '$'+v } } } }
-      });
-    }
-
-    function renderHourChart(hours) {
-      destroyChart('hour');
-      charts.hour = new Chart(document.getElementById('hourChart'), {
-        type: 'bar',
-        data: {
-          labels: hours.map((_, i) => `${i}:00`),
-          datasets: [{ data: hours, backgroundColor: hours.map((_, i) => i < 8 || i >= 18 ? '#14B8A6' : '#3B82F6'), borderRadius: 4 }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-      });
-    }
-
-    function renderDoughnut(canvasId, data, labelKey) {
-      const key = canvasId;
-      destroyChart(key);
-      if (!data.length) return;
-      charts[key] = new Chart(document.getElementById(canvasId), {
-        type: 'doughnut',
-        data: {
-          labels: data.map(d => d[labelKey]),
-          datasets: [{ data: data.map(d => d.count), backgroundColor: COLORS.slice(0, data.length), borderWidth: 0 }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
-          plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12 } } } }
-      });
-    }
-
-    function renderOrigins(data) {
-      destroyChart('origins');
-      if (!data.length) return;
-      charts.origins = new Chart(document.getElementById('originsChart'), {
-        type: 'bar',
-        data: {
-          labels: data.map(d => d.city),
-          datasets: [{ data: data.map(d => d.count), backgroundColor: '#3B82F6', borderRadius: 4 }]
-        },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-      });
-    }
-
-    function renderEquipment(data) {
-      destroyChart('equipment');
-      if (!data.length) return;
-      charts.equipment = new Chart(document.getElementById('equipmentChart'), {
-        type: 'doughnut',
-        data: {
-          labels: data.map(d => d.equipment),
-          datasets: [{ data: data.map(d => d.count), backgroundColor: COLORS.slice(0, data.length), borderWidth: 0 }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, cutout: '55%',
-          plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12 } } } }
-      });
-    }
-
-    function renderObjections(data) {
-      destroyChart('objections');
-      if (!data.length) {
-        document.getElementById('objectionsChart').parentElement.innerHTML = '<p class="text-sm text-gray-400 text-center mt-20">No objections recorded yet</p>';
-        return;
-      }
-      charts.objections = new Chart(document.getElementById('objectionsChart'), {
-        type: 'bar',
-        data: {
-          labels: data.map(d => d.objection),
-          datasets: [{ data: data.map(d => d.count), backgroundColor: '#F59E0B', borderRadius: 4 }]
-        },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-      });
-    }
-
-    function renderLanesTable(lanes) {
-      const tbody = document.getElementById('lanes-tbody');
-      if (!lanes.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-4">No data yet</td></tr>'; return; }
-      tbody.innerHTML = lanes.map(l => `<tr class="border-b border-gray-50 hover:bg-gray-50">
-        <td class="py-2 font-medium text-gray-800">${l.origin} → ${l.destination}</td>
-        <td class="py-2 text-right text-gray-600">${l.calls}</td>
-        <td class="py-2 text-right text-gray-600">${l.booked}</td>
-        <td class="py-2 text-right text-gray-600">$${l.avg_list_rate}</td>
-        <td class="py-2 text-right text-gray-600">${l.avg_final_rate ? '$'+l.avg_final_rate : '—'}</td>
-      </tr>`).join('');
-    }
-
-    function renderCarriersTable(carriers) {
-      const tbody = document.getElementById('carriers-tbody');
-      if (!carriers.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-4">No data yet</td></tr>'; return; }
-      tbody.innerHTML = carriers.map(c => `<tr class="border-b border-gray-50 hover:bg-gray-50">
-        <td class="py-2 font-mono text-gray-800">${c.mc_number}</td>
-        <td class="py-2 text-gray-600">${c.carrier_name || '—'}</td>
-        <td class="py-2 text-right text-gray-600">${c.call_count}</td>
-        <td class="py-2 text-right text-gray-600">${c.bookings}</td>
-      </tr>`).join('');
     }
 
     fetchMetrics();
