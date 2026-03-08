@@ -16,41 +16,40 @@ The entire system is production-ready: deployed on AWS via Terraform, integrated
 
 ## Architecture Overview
 
-```
-Carrier Phone Call
-       │
-       ▼
-┌─────────────────────┐
-│  HappyRobot Platform │
-│  (Voice AI Agent)    │
-│                      │
-│  ┌────────────────┐  │
-│  │ Prompt + Tools │  │──── verify_carrier ────► GET  /carrier/verify/:mc
-│  │                │  │──── search_loads ──────► GET  /loads?origin=...
-│  │                │  │──── negotiate ─────────► POST /negotiate
-│  │                │  │──── log_offer ─────────► POST /offers
-│  │                │  │──── get_timezone ──────► GET  /timezone?city=...
-│  │                │  │──── transfer_to_sales ─► Direct Transfer
-│  └────────────────┘  │
-│                      │
-│  Real-time classifiers│
-│  (sentiment, outcome) │
-└──────────┬───────────┘
-           │ POST /offers/finalize
-           ▼
-┌─────────────────────┐     ┌──────────────┐
-│  Node.js / Express  │────►│  DynamoDB    │
-│  (AWS App Runner)   │     │  (loads,     │
-│                     │     │   offers)    │
-│  ┌───────────────┐  │     └──────────────┘
-│  │ Static Files  │  │
-│  │ (Dashboard)   │  │     ┌──────────────┐
-│  └───────────────┘  │────►│  FMCSA API   │
-│                     │     └──────────────┘
-│                     │     ┌──────────────┐
-│                     │────►│  Nominatim   │
-│                     │     │  (Geocoding) │
-└─────────────────────┘     └──────────────┘
+```mermaid
+flowchart TB
+    Carrier["Carrier Phone Call"]
+    
+    subgraph HR["HappyRobot Platform"]
+        VoiceAgent["Inbound Voice Agent<br/>(GPT-4.1)"]
+        Classifiers["Real-time Classifiers<br/>(sentiment, call outcome)"]
+    end
+
+    subgraph AWS["AWS (App Runner)"]
+        API["Node.js / Express API"]
+        Dashboard["Dashboard UI<br/>(DaisyUI + Chart.js + Leaflet)"]
+    end
+
+    DynamoDB[("DynamoDB<br/>loads | offers")]
+    FMCSA["FMCSA SAFER API"]
+    Nominatim["Nominatim<br/>OpenStreetMap"]
+    SalesRep["Sales Rep<br/>(warm transfer)"]
+
+    Carrier -->|"inbound call"| VoiceAgent
+
+    VoiceAgent -->|"verify_carrier"| API
+    VoiceAgent -->|"search_loads"| API
+    VoiceAgent -->|"negotiate"| API
+    VoiceAgent -->|"log_offer"| API
+    VoiceAgent -->|"get_timezone"| API
+    VoiceAgent -->|"transfer_to_sales"| SalesRep
+
+    Classifiers -->|"POST /offers/finalize"| API
+
+    API --> DynamoDB
+    API -->|"carrier verification"| FMCSA
+    API -->|"geocoding"| Nominatim
+    Dashboard -->|"GET /dashboard/metrics"| API
 ```
 
 **Technology Stack:**
