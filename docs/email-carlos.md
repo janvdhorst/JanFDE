@@ -27,7 +27,7 @@ The full system is deployed and running on AWS — a containerized Node.js API o
 - **Live API:** https://4n3uiqqjvx.us-east-1.awsapprunner.com
 - **Dashboard:** https://4n3uiqqjvx.us-east-1.awsapprunner.com/dashboard.html?api_key=happy2025secret
 - **Code Repository:** https://github.com/janvdhorst/JanFDE
-- **HappyRobot Workflow:** [Platform link — to be added]
+- **HappyRobot Workflow:** https://platform.happyrobot.ai/fdejan/workflow/1zoox0eqgf6t/editor/llnit2ax0pzy
 
 **Infrastructure:** Everything is deployed via Terraform and a single `deploy.sh` script — ECR, App Runner, DynamoDB tables, and IAM roles. The whole stack can be torn down and rebuilt in minutes.
 
