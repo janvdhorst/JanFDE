@@ -17,39 +17,55 @@ The entire system is production-ready: deployed on AWS via Terraform, integrated
 ## Architecture Overview
 
 ```mermaid
-flowchart TB
-    Carrier["Carrier Phone Call"]
-    
-    subgraph HR["HappyRobot Platform"]
-        VoiceAgent["Inbound Voice Agent<br/>(GPT-4.1)"]
-        Classifiers["Real-time Classifiers<br/>(sentiment, call outcome)"]
+flowchart LR
+    Carrier["Carrier<br/>Phone Call"]
+
+    subgraph HappyRobot["HappyRobot Platform"]
+        direction TB
+
+        subgraph LiveCall["During Call"]
+            direction TB
+            Prompt["Prompt Node<br/>(GPT-4.1)"]
+            Tools["Tools"]
+            Prompt --- Tools
+        end
+
+        subgraph PostCall["After Call"]
+            direction TB
+            ClassifyResult["AI Classify<br/>Call Result"]
+            ClassifyBehavior["AI Classify<br/>User Behavior"]
+            ClassifySentiment["AI Classify<br/>Sentiment"]
+            FinalizeWH["Webhook<br/>finalize"]
+            ClassifyResult --> ClassifyBehavior --> ClassifySentiment --> FinalizeWH
+        end
+
+        LiveCall --> PostCall
     end
 
-    subgraph AWS["AWS (App Runner)"]
-        API["Node.js / Express API"]
-        Dashboard["Dashboard UI<br/>(DaisyUI + Chart.js + Leaflet)"]
+    subgraph Backend["AWS App Runner"]
+        direction TB
+        API["Node.js / Express"]
+        DashboardUI["Dashboard<br/>(DaisyUI + Leaflet)"]
     end
 
-    DynamoDB[("DynamoDB<br/>loads | offers")]
-    FMCSA["FMCSA SAFER API"]
-    Nominatim["Nominatim<br/>OpenStreetMap"]
-    SalesRep["Sales Rep<br/>(warm transfer)"]
+    subgraph Storage["AWS"]
+        DynamoDB[("DynamoDB<br/>loads | offers")]
+    end
 
-    Carrier -->|"inbound call"| VoiceAgent
+    FMCSA["FMCSA API"]
+    Nominatim["Nominatim<br/>Geocoding"]
+    SalesRep["Sales Rep"]
 
-    VoiceAgent -->|"verify_carrier"| API
-    VoiceAgent -->|"search_loads"| API
-    VoiceAgent -->|"negotiate"| API
-    VoiceAgent -->|"log_offer"| API
-    VoiceAgent -->|"get_timezone"| API
-    VoiceAgent -->|"transfer_to_sales"| SalesRep
+    Carrier --> Prompt
 
-    Classifiers -->|"POST /offers/finalize"| API
+    Tools -->|"verify_carrier<br/>search_loads<br/>negotiate<br/>log_offer<br/>get_timezone"| API
+    Tools -->|"transfer_to_sales"| SalesRep
+    FinalizeWH -->|"POST /offers/finalize"| API
 
     API --> DynamoDB
-    API -->|"carrier verification"| FMCSA
-    API -->|"geocoding"| Nominatim
-    Dashboard -->|"GET /dashboard/metrics"| API
+    API --> FMCSA
+    API --> Nominatim
+    DashboardUI -->|"/dashboard/metrics"| API
 ```
 
 **Technology Stack:**
@@ -198,8 +214,12 @@ The voice agent is configured on the HappyRobot platform as an inbound voice age
 5. `get_timezone` — Webhook to `GET /timezone`
 6. `transfer_to_sales` — Direct warm transfer to sales team
 
-**Post-Call Processing:**
-A webhook node fires after the call ends, sending `POST /offers/finalize` with the session's classifier outcome, sentiment, duration, user behavior, and equipment type.
+**Post-Call Processing (4-node chain after the voice agent):**
+
+1. **AI Classify: Analyze Call Result** — classifies the call outcome (successful, rejected, callback, no_loads_available, not_authorized)
+2. **AI Classify: user_behavior** — assesses carrier cooperativeness (smooth, neutral, difficult)
+3. **AI Classify: Assess User Sentiment** — determines emotional tone (positive, neutral, negative, frustrated)
+4. **Webhook: finalize** — sends `POST /offers/finalize` with the outputs of all three classifiers plus session duration and equipment type
 
 **Agent Prompt Highlights:**
 - Structured 7-step conversation flow (greet → verify → gather info → search → offer → negotiate → book/transfer)

@@ -376,12 +376,50 @@ Add each tool inside the prompt node. For each, click **+** under the prompt.
 | Transfer type | Warm handoff |
 | Warm handoff message | `Incoming carrier call. MC number @mc_number. Reason: @reason. Carrier is verified.` |
 
-### 6.6 Add Post-Call Webhook
+### 6.6 Add Post-Call Processing Chain
 
-Click **+** after the voice agent node and add a **Webhook** node:
+After the voice agent node, add the following nodes in sequence:
+
+#### Node 1: AI Classify — "Analyze Call Result"
+
+Click **+** after the voice agent node and add an **AI Classify** node.
 
 | Field | Value |
 |---|---|
+| Name | `Analyze Call Result` |
+| Purpose | Classify the call outcome based on the conversation |
+| Output variable | `call_result` |
+| Classes | `successful`, `rejected`, `callback`, `no_loads_available`, `not_authorized` |
+
+#### Node 2: AI Classify — "user_behavior"
+
+Click **+** after the previous node and add another **AI Classify** node.
+
+| Field | Value |
+|---|---|
+| Name | `user_behavior` |
+| Purpose | Assess how cooperative or difficult the carrier was during the call |
+| Output variable | `user_behavior` |
+| Classes | `smooth`, `neutral`, `difficult` |
+
+#### Node 3: AI Classify — "Assess User Sentiment"
+
+Click **+** after the previous node and add another **AI Classify** node.
+
+| Field | Value |
+|---|---|
+| Name | `Assess User Sentiment` |
+| Purpose | Determine the carrier's overall emotional tone during the call |
+| Output variable | `sentiment` |
+| Classes | `positive`, `neutral`, `negative`, `frustrated` |
+
+#### Node 4: Webhook — "finalize"
+
+Click **+** after the sentiment node and add a **Webhook** node.
+
+| Field | Value |
+|---|---|
+| Name | `finalize` |
 | Method | POST |
 | URL | `@env.API_BASE_URL/offers/finalize` |
 | Headers | `Authorization`: `Bearer @env.API_KEY`, `Content-Type`: `application/json` |
@@ -390,14 +428,16 @@ Click **+** after the voice agent node and add a **Webhook** node:
 
 ```json
 {
-  "session_id": "@inbound_voice_agent.session_id",
-  "duration": "@inbound_voice_agent.duration",
-  "sentiment": "@inbound_voice_agent.sentiment",
-  "call_result": "@inbound_voice_agent.call_result",
-  "user_behavior": "@inbound_voice_agent.user_behavior",
-  "equipment_type": "@inbound_voice_agent.equipment_type"
+  "session_id": "@inbound_call.session_id",
+  "duration": "@inbound_call.duration",
+  "call_result": "@analyze_call_result.output",
+  "user_behavior": "@user_behavior.output",
+  "sentiment": "@assess_user_sentiment.output",
+  "equipment_type": "@inbound_call.equipment_type"
 }
 ```
+
+> **Note:** The `@` references above depend on your node names. Use the HappyRobot `@` picker to select the correct outputs from each preceding node.
 
 ### 6.7 Publish
 
