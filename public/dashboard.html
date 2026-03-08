@@ -64,6 +64,16 @@
         <div class="stat-desc">vs loadboard rates</div>
       </div>
       <div class="stat">
+        <div class="stat-title">Avg Savings/Deal</div>
+        <div class="stat-value text-accent" id="kpi-avg-savings">$0</div>
+        <div class="stat-desc">per booked load</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">Avg Rounds</div>
+        <div class="stat-value text-warning" id="kpi-avg-rounds">0</div>
+        <div class="stat-desc">negotiation depth</div>
+      </div>
+      <div class="stat">
         <div class="stat-title">Avg Call Duration</div>
         <div class="stat-value" id="kpi-duration">—</div>
         <div class="stat-desc">per conversation</div>
@@ -116,7 +126,24 @@
       </div>
     </div>
 
-    <!-- Row 5: Top Lanes + Outcomes -->
+    <!-- Row 5: Equipment Mix + Carrier Sentiment -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Equipment Mix</h2>
+          <div class="h-56 mt-2"><canvas id="equipmentChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Carrier Sentiment</h2>
+          <div class="h-56 mt-2"><canvas id="sentimentChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 6: Top Lanes + Outcomes -->
+
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
       <div class="lg:col-span-7 card bg-base-200 shadow-xl">
         <div class="card-body">
@@ -145,7 +172,7 @@
       </div>
     </div>
 
-    <!-- Row 6: Top Carriers -->
+    <!-- Row 7: Top Carriers -->
     <div class="card bg-base-200 shadow-xl">
       <div class="card-body">
         <h2 class="card-title text-sm uppercase tracking-wider opacity-50 font-semibold">Top Carriers</h2>
@@ -209,6 +236,15 @@
       if (s === "pending") return '<div class="badge badge-warning badge-sm gap-1">Pending</div>';
       if (s.includes("reject")) return '<div class="badge badge-error badge-sm gap-1">Rejected</div>';
       return `<div class="badge badge-ghost badge-sm">${s}</div>`;
+    }
+
+    function behaviorBadge(behavior) {
+      if (!behavior) return "";
+      const b = behavior.toLowerCase();
+      if (b === "smooth") return '<div class="badge badge-info badge-outline badge-xs">smooth</div>';
+      if (b === "difficult") return '<div class="badge badge-error badge-outline badge-xs">difficult</div>';
+      if (b === "neutral") return '<div class="badge badge-ghost badge-outline badge-xs">neutral</div>';
+      return `<div class="badge badge-ghost badge-outline badge-xs">${b}</div>`;
     }
 
     /* ── Map ── */
@@ -369,6 +405,55 @@
       });
     }
 
+    /* ── Equipment & Sentiment ── */
+    function renderEquipment(data) {
+      destroyChart("equipment");
+      const ctx = document.getElementById("equipmentChart");
+      if (!data || !data.length) {
+        ctx.parentElement.innerHTML = '<p class="text-sm opacity-30 text-center flex items-center justify-center h-full">No equipment data yet</p>';
+        return;
+      }
+      const palette = { "Dry Van": "#38bdf8", "Reefer": "#4ade80", "Flatbed": "#facc15", "Power Only": "#f472b6", "Step Deck": "#a78bfa", "Box Truck": "#fb923c" };
+      const fallback = ["#2dd4bf", "#818cf8", "#94a3b8", "#e879f9"];
+      let fi = 0;
+      const colors = data.map(d => palette[d.equipment] || fallback[fi++ % fallback.length]);
+      charts.equipment = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels: data.map(d => d.equipment),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: colors, borderWidth: 0 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: "60%",
+          plugins: { legend: { position: "right", labels: { boxWidth: 10, padding: 14, color: "#94a3b8" } } },
+        },
+      });
+    }
+
+    function renderSentiment(data) {
+      destroyChart("sentiment");
+      const ctx = document.getElementById("sentimentChart");
+      if (!data || !data.length) {
+        ctx.parentElement.innerHTML = '<p class="text-sm opacity-30 text-center flex items-center justify-center h-full">No sentiment data yet</p>';
+        return;
+      }
+      const palette = { positive: "#4ade80", neutral: "#facc15", negative: "#f87171", frustrated: "#fb923c", satisfied: "#38bdf8" };
+      const fallback = ["#a78bfa", "#f472b6", "#2dd4bf", "#94a3b8"];
+      let fi = 0;
+      const colors = data.map(d => palette[d.sentiment] || fallback[fi++ % fallback.length]);
+      charts.sentiment = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels: data.map(d => d.sentiment),
+          datasets: [{ data: data.map(d => d.count), backgroundColor: colors, borderWidth: 0 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: "60%",
+          plugins: { legend: { position: "right", labels: { boxWidth: 10, padding: 14, color: "#94a3b8" } } },
+        },
+      });
+    }
+
     /* ── Activity Feed ── */
     function renderActivity(items) {
       const el = document.getElementById("activity-feed");
@@ -378,6 +463,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-0.5">
               ${statusBadge(a.status)}
+              ${behaviorBadge(a.user_behavior)}
               <span class="text-xs opacity-40 font-mono">MC ${a.mc_number || "—"}</span>
             </div>
             <p class="text-sm opacity-70 truncate">${a.lane}</p>
@@ -430,6 +516,8 @@
       animateValue(document.getElementById("kpi-calls"), d.kpis.total_calls);
       animateValue(document.getElementById("kpi-booking"), d.kpis.booking_rate_pct, { suffix: "%", decimals: 1 });
       animateValue(document.getElementById("kpi-savings"), d.kpis.total_savings, { prefix: "$" });
+      animateValue(document.getElementById("kpi-avg-savings"), d.kpis.avg_savings, { prefix: "$" });
+      animateValue(document.getElementById("kpi-avg-rounds"), d.negotiation.avg_rounds, { decimals: 1 });
       document.getElementById("kpi-duration").textContent = fmtDuration(d.kpis.avg_call_duration_sec);
 
       renderFunnel(d.funnel);
@@ -437,6 +525,8 @@
       renderActivity(d.recent_activity);
       renderWaterfall(d.negotiation);
       renderRounds(d.negotiation.round_distribution);
+      renderEquipment(d.equipment_breakdown);
+      renderSentiment(d.sentiment_breakdown);
       renderOutcomes(d.outcome_breakdown);
       renderLanes(d.top_lanes);
       renderCarriers(d.top_carriers);

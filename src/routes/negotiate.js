@@ -74,6 +74,15 @@ router.post("/", async (req, res) => {
     //   round 2 = 1st counter, round 3 = 2nd counter, round 4 = 3rd counter
 
     if (round <= 2) {
+      if (carrierRate <= step2) {
+        return res.json({
+          action: "accept",
+          rate: carrierRate,
+          load_id,
+          round,
+          message: `Accept $${carrierRate}. It's at or below our next step.`,
+        });
+      }
       return res.json({
         action: "counter",
         rate: step2,
@@ -86,13 +95,13 @@ router.post("/", async (req, res) => {
     }
 
     if (round === 3) {
-      if (carrierRate <= step2) {
+      if (carrierRate <= target) {
         return res.json({
           action: "accept",
           rate: carrierRate,
           load_id,
           round,
-          message: `Accept $${carrierRate}. Carrier came down to our second step.`,
+          message: `Accept $${carrierRate}. Carrier is at or below our target.`,
         });
       }
       return res.json({
@@ -107,23 +116,13 @@ router.post("/", async (req, res) => {
     }
 
     if (round === 4) {
-      if (carrierRate <= target) {
+      if (carrierRate <= ceiling) {
         return res.json({
           action: "accept",
           rate: carrierRate,
           load_id,
           round,
-          message: `Accept $${carrierRate}. It's at or below our target.`,
-        });
-      }
-      if (carrierRate <= ceiling) {
-        return res.json({
-          action: "final_offer",
-          rate: carrierRate,
-          carrier_rate: carrierRate,
-          load_id,
-          round,
-          message: `Final offer: accept $${carrierRate}. Tell them this is the absolute best you can do.`,
+          message: `Accept $${carrierRate}. It's within our limit.`,
         });
       }
       return res.json({

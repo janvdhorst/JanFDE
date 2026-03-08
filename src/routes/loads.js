@@ -82,7 +82,7 @@ router.get("/", async (req, res) => {
       loads = loads.filter(l => l.status === 'available');
     }
     if (pickup_date) {
-      loads = loads.filter(l => l.pickup_datetime?.startsWith(pickup_date));
+      loads = loads.filter(l => l.pickup_datetime && l.pickup_datetime.slice(0, 10) >= pickup_date);
     } else {
       const today = new Date().toISOString().slice(0, 10);
       loads = loads.filter(l => !l.pickup_datetime || l.pickup_datetime.slice(0, 10) >= today);

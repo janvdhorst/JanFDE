@@ -49,7 +49,7 @@ router.get("/metrics", async (_req, res) => {
     let totalSavings = 0, savingsCount = 0;
     for (const c of accepted) {
       const load = loads.find(l => l.load_id === c.load_id);
-      if (load && c.final_rate) {
+      if (load && c.final_rate > 0) {
         totalSavings += load.loadboard_rate - c.final_rate;
         savingsCount++;
       }
@@ -87,7 +87,7 @@ router.get("/metrics", async (_req, res) => {
     let avgLoadboard = 0, avgOffer = 0, avgFinal = 0, waterCount = 0;
     for (const c of accepted) {
       const load = loads.find(l => l.load_id === c.load_id);
-      if (load && c.final_rate && c.offered_rate) {
+      if (load && c.final_rate > 0 && c.offered_rate > 0) {
         avgLoadboard += load.loadboard_rate;
         avgOffer += c.offered_rate;
         avgFinal += c.final_rate;
@@ -116,7 +116,7 @@ router.get("/metrics", async (_req, res) => {
       const key = `${load.origin} → ${load.destination}`;
       if (!laneStats[key]) laneStats[key] = { lane: key, deals: 0, booked: 0, savings: 0, total_final: 0 };
       laneStats[key].deals++;
-      if (c.status === "accepted" && c.final_rate) {
+      if (c.status === "accepted" && c.final_rate > 0) {
         laneStats[key].booked++;
         laneStats[key].total_final += c.final_rate;
         laneStats[key].savings += load.loadboard_rate - c.final_rate;
@@ -127,10 +127,15 @@ router.get("/metrics", async (_req, res) => {
       .sort((a, b) => b.deals - a.deals)
       .slice(0, 8);
 
+    const verifyNames = {};
+    for (const v of verifications) {
+      if (v.carrier_name && v.mc_number) verifyNames[v.mc_number] = v.carrier_name;
+    }
+
     const carrierStats = {};
     for (const c of calls) {
       const mc = c.mc_number;
-      if (!carrierStats[mc]) carrierStats[mc] = { mc_number: mc, carrier_name: null, calls: 0, bookings: 0 };
+      if (!carrierStats[mc]) carrierStats[mc] = { mc_number: mc, carrier_name: verifyNames[mc] || null, calls: 0, bookings: 0 };
       carrierStats[mc].calls++;
       if (c.carrier_name) carrierStats[mc].carrier_name = c.carrier_name;
       if (c.status === "accepted") carrierStats[mc].bookings++;
@@ -147,16 +152,49 @@ router.get("/metrics", async (_req, res) => {
         return {
           status: c.status,
           mc_number: c.mc_number,
-          carrier_name: c.carrier_name || null,
+          carrier_name: c.carrier_name || verifyNames[c.mc_number] || null,
           lane: load ? `${load.origin} → ${load.destination}` : c.lanes_requested || "—",
           offered_rate: c.offered_rate,
           final_rate: c.final_rate,
           rounds: c.rounds,
           duration: c.duration,
           call_result: c.call_result || c.call_outcome || null,
+          user_behavior: c.user_behavior || null,
+          carrier_sentiment: c.sentiment || c.carrier_sentiment || null,
           created_at: c.created_at,
         };
       });
+
+    const sentimentCount = {};
+    for (const c of calls) {
+      const s = c.sentiment || c.carrier_sentiment;
+      if (s && s !== "true" && s !== "false") {
+        sentimentCount[s] = (sentimentCount[s] || 0) + 1;
+      }
+    }
+    const sentimentBreakdown = Object.entries(sentimentCount)
+      .map(([sentiment, count]) => ({ sentiment, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const equipmentCount = {};
+    for (const c of calls) {
+      if (c.equipment_type) {
+        equipmentCount[c.equipment_type] = (equipmentCount[c.equipment_type] || 0) + 1;
+      }
+    }
+    const equipmentBreakdown = Object.entries(equipmentCount)
+      .map(([equipment, count]) => ({ equipment, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const behaviorCount = {};
+    for (const c of calls) {
+      if (c.user_behavior) {
+        behaviorCount[c.user_behavior] = (behaviorCount[c.user_behavior] || 0) + 1;
+      }
+    }
+    const behaviorBreakdown = Object.entries(behaviorCount)
+      .map(([behavior, count]) => ({ behavior, count }))
+      .sort((a, b) => b.count - a.count);
 
     const loadMap = loads
       .filter(l => l.lat != null && l.lng != null)
@@ -189,6 +227,9 @@ router.get("/metrics", async (_req, res) => {
         round_distribution: roundDist,
       },
       outcome_breakdown: outcomeBreakdown,
+      sentiment_breakdown: sentimentBreakdown,
+      equipment_breakdown: equipmentBreakdown,
+      user_behavior_breakdown: behaviorBreakdown,
       top_lanes: topLanes,
       top_carriers: topCarriers,
       recent_activity: recent,
