@@ -169,14 +169,14 @@ All endpoints (except `/health`) require `Authorization: Bearer <API_KEY>`.
 │   ├── variables.tf         # Input variables
 │   └── outputs.tf           # Service URL, ECR URI
 └── docs/
-    ├── build-description.md # Technical build document
+    ├── build-description.md # Client-facing build overview
+    ├── technical-spec.md    # API & infrastructure reference
     ├── setup-guide.md       # Full reproduction tutorial
-    ├── email-carlos.md      # Client email template
-    └── video-script.md      # Demo recording script
+    └── email-carlos.md      # Client email template
 ```
 
 ## Documentation
 
-- [Build Description](docs/build-description.md) — Full technical write-up of the system
-- [Setup Guide](docs/setup-guide.md) — Step-by-step instructions to reproduce the entire system
-- [Video Script](docs/video-script.md) — 5-minute demo walkthrough outline
+- [Build Description](docs/build-description.md) — Client-facing overview: call flows, edge cases, negotiation strategy, dashboard, and roadmap
+- [Technical Specification](docs/technical-spec.md) — API reference, database schema, negotiation engine internals, infrastructure details
+- [Setup Guide](docs/setup-guide.md) — Step-by-step instructions to reproduce the entire system from scratch

@@ -1,4 +1,4 @@
-# Inbound Carrier Sales AI Agent — Build Description
+# Inbound Carrier Sales AI — Build Description
 
 **Prepared for:** Acme Logistics
 **Prepared by:** Jan van der Horst
@@ -6,15 +6,170 @@
 
 ---
 
-## Executive Summary
+## 1. What We Built
 
-This document describes the design, implementation, and deployment of an AI-powered inbound carrier sales system built for Acme Logistics. The system handles inbound phone calls from carriers looking to book freight loads. It verifies carrier authority via FMCSA, matches carriers with available loads using geospatial search, negotiates rates through a structured 3-round engine, and provides a real-time analytics dashboard for operations management.
+An AI voice agent that answers your inbound carrier line 24/7. When a carrier calls looking for a load, the agent handles the entire conversation autonomously — from verifying their authority to negotiating a rate and handing off to your sales team for paperwork. Every call is logged, every negotiation round is tracked, and a live dashboard gives your operations team full visibility.
 
-The entire system is production-ready: deployed on AWS via Terraform, integrated with the HappyRobot voice AI platform, and accessible through a single inbound phone number.
+This is not a chatbot or IVR menu. The agent holds natural, two-way phone conversations. It sounds like an experienced carrier sales rep named Alex.
 
 ---
 
-## Architecture Overview
+## 2. How a Typical Call Works
+
+### The Happy Path (carrier books a load)
+
+```mermaid
+sequenceDiagram
+    participant C as Carrier
+    participant A as AI Agent (Alex)
+    participant API as Backend API
+    participant S as Sales Rep
+
+    C->>A: "Hi, my MC is 1515"
+    A->>API: verify_carrier(mc=1515)
+    API-->>A: Verified, "Fast Freight LLC"
+    A->>C: "Got it — MC one-five-one-five, Fast Freight LLC. That right?"
+
+    C->>A: "Yeah, I'm in Tampa with a flatbed"
+    A->>API: get_timezone(city=Tampa, FL)
+    A->>C: "When are you looking to pick up?"
+    C->>A: "Anytime this week"
+
+    A->>API: search_loads(origin=Tampa, FL, equipment=Flatbed)
+    API-->>A: Load LD-1012, Jacksonville → Savannah, $650, 200mi deadhead
+    A->>C: "I've got a flatbed load from Jacksonville to Savannah — about 200 miles deadhead, works out to $1.90 a mile"
+
+    A->>API: negotiate(load=LD-1012, mc=1515)
+    API-->>A: Offer $553
+    A->>C: "Can you do five fifty-three?"
+
+    C->>A: "I need at least six hundred"
+    A->>API: log_offer(status=pending, offered=553, counter=600)
+    A->>API: negotiate(load=LD-1012, mc=1515, carrier_rate=600)
+    API-->>A: Accept $600
+    A->>C: "Six hundred works. Let me confirm — MC one-five-one-five, Jacksonville to Savannah, six hundred dollars?"
+
+    C->>A: "That's right"
+    A->>API: log_offer(status=accepted, final_rate=600)
+    A->>C: "Stay on the line, I'm transferring you to sales for the paperwork"
+    A->>S: Warm transfer with deal details
+```
+
+### Carrier Has No Loads Available (silent retry)
+
+The agent doesn't just say "nothing available" on the first miss. It silently relaxes search filters before giving up:
+
+1. Carrier asks for flatbed loads in Tampa on Monday → **no results**
+2. Agent drops the date filter and retries → finds a load on Wednesday
+3. Agent tells the carrier: "Nothing for Monday, but I've got one picking up Wednesday — would that work?"
+
+If that also fails, it drops the equipment filter. Only after exhausting all options does it tell the carrier the board is empty.
+
+### Carrier is Unauthorized
+
+If the FMCSA check comes back as "Not Authorized" or "Out of Service," the agent reads the specific reason to the carrier, lets them know it can't book them today, and ends the call professionally. No time wasted on either side.
+
+### Carrier Wants to Think About It
+
+The agent doesn't pressure. It gives them the load ID and tells them it's first-come-first-served:
+
+> "No problem at all — the load ID is LD-1012. If you decide you want it, just call us back and reference that number. I can't guarantee it'll still be there, but we'd love to have you."
+
+### Carrier Asks for a Manager
+
+The agent doesn't transfer for manager requests, pricing impasses, or system errors. It stays on the line:
+
+> "I hear you — I'm the one handling loads right now though. Let me see what I can do for you."
+
+Transfers only happen when a price is agreed upon.
+
+---
+
+## 3. Edge Cases the Agent Handles
+
+| Scenario | What the Agent Does |
+|---|---|
+| **Garbled audio / noisy cab** | Blames the connection, asks them to repeat: "Sorry, getting some static — did you say Reefer or Dry Van?" |
+| **Carrier gives city without state** | Asks which state (handles ambiguous names like Springfield, Portland, Columbus) |
+| **Carrier says "three dollars a mile"** | Converts rate-per-mile to flat dollar amount using the load's total miles before calling the negotiate tool |
+| **Carrier says "next Friday"** | Calls the timezone tool first, counts forward from the carrier's local date |
+| **Carrier says "anytime" or "this week"** | Searches without a date filter — doesn't force a specific day |
+| **No loads in the area** | Already searched a 1,500-mile radius. Doesn't retry city by city. Asks if the carrier has another area they can run to. |
+| **Carrier has multiple trailer types** | Searches without an equipment filter so all matching loads come back in one call |
+| **Carrier rejects the final rate** | Offers to search a different lane instead of ending the call |
+| **System/API error** | Apologizes and asks them to call back in a few minutes. Never transfers on errors. |
+| **Carrier offers less than our floor** | Accepts immediately — they're below our opening offer |
+| **Carrier offers more than market rate** | Never pays more than 100% of market. Issues a final offer at ceiling. |
+
+---
+
+## 4. Negotiation Strategy
+
+The agent never does rate math. Every pricing decision is made by the server-side negotiation engine. The LLM's only job is to relay the rate naturally and handle the conversation.
+
+**Rate Ladder:**
+
+| Step | % of Market Rate | When |
+|---|---|---|
+| Opening offer | 85% | First pitch |
+| 1st counter | 90% | After carrier's first counter |
+| 2nd counter | 95% | After carrier's second counter |
+| Final offer | 100% | Last chance — if rejected, search another lane |
+
+**Rules:**
+- Never accepts on the first counter-offer — always pushes back at least once
+- If the carrier's ask is at or below our next step, accepts at their rate (doesn't overshoot)
+- Caps at 100% of market rate — never pays above loadboard
+- Tracks rounds automatically — no reliance on the LLM counting correctly
+
+**Why this matters:** The negotiation engine saved an average of $X per booked load in testing. The 85% starting point gives room for 3 meaningful negotiation rounds while the 100% ceiling ensures you never book at a loss.
+
+---
+
+## 5. What the Dashboard Shows
+
+The operations dashboard updates in real time and is accessible from any browser.
+
+**At a Glance (KPI Cards):**
+- Total inbound calls
+- Booking rate (% of calls that result in a booking)
+- Total savings vs. market rates
+- Average savings per booked deal
+- Average negotiation rounds per call
+- Average call duration
+
+**Conversion Funnel:**
+Tracks drop-off at each stage — Total Calls → Verified Carriers → Loads Found → Negotiated → Booked — so you can see exactly where carriers fall out of the pipeline.
+
+**Interactive Load Map:**
+All load origins plotted on a US map. Green markers = booked, blue = available. Click any marker to see rate, pickup date, equipment type, and status.
+
+**Negotiation Analytics:**
+- Rate Waterfall: average market rate vs. your offer vs. final agreed rate
+- Round Distribution: how many rounds it typically takes to close
+- Equipment Mix: which trailer types are most active
+- Carrier Sentiment: how carriers feel during calls (positive, neutral, frustrated)
+
+**Operational Tables:**
+- Top Lanes by volume, bookings, and savings
+- Top Carriers by call frequency and conversion rate
+- Live Activity Feed with status badges, rates, rounds, and timestamps
+
+---
+
+## 6. Post-Call Analytics
+
+After every call, three AI classifiers analyze the conversation:
+
+1. **Call Result** — Was it a booking, rejection, callback, or no loads available?
+2. **User Behavior** — Was the carrier smooth, neutral, or difficult to work with?
+3. **Sentiment** — Was the carrier positive, neutral, negative, or frustrated?
+
+These classifications are stamped onto the call record along with duration and equipment type, feeding directly into the dashboard metrics. No manual tagging required.
+
+---
+
+## 7. Architecture Summary
 
 ```mermaid
 flowchart LR
@@ -68,234 +223,43 @@ flowchart LR
     DashboardUI -->|"/dashboard/metrics"| API
 ```
 
-**Technology Stack:**
-
 | Layer | Technology |
 |---|---|
-| Voice AI | HappyRobot Platform (GPT-4.1, real-time classifiers) |
-| API | Node.js 20, Express.js |
-| Database | AWS DynamoDB (two tables: loads, offers) |
+| Voice AI | HappyRobot Platform (GPT-4.1) |
+| API | Node.js, Express |
+| Database | AWS DynamoDB |
 | Compute | AWS App Runner (auto-scaling, managed HTTPS) |
-| Container Registry | AWS ECR |
-| Infrastructure as Code | Terraform |
-| External APIs | FMCSA SAFER (carrier verification), Nominatim OpenStreetMap (geocoding) |
-| Dashboard | HTML5, DaisyUI, Tailwind CSS, Chart.js, Leaflet.js |
+| Infrastructure | Terraform, Docker |
+| External APIs | FMCSA SAFER (carrier verification), Nominatim (geocoding) |
+
+For full technical details, see the [Technical Specification](technical-spec.md).
 
 ---
 
-## Feature Breakdown
+## 8. What's Next — Planned Improvements
 
-### 1. Carrier Verification
+### Near-Term (Next Release)
 
-**Endpoint:** `GET /carrier/verify/:mc_number`
-
-When a carrier calls in, the first step is verifying their FMCSA operating authority. The API queries the FMCSA SAFER system with the carrier's MC number and returns:
-
-- Legal name, DBA name, and physical address
-- Operating status and authorization flags
-- A boolean `verified` field indicating whether the carrier is authorized to operate
-
-Unauthorized carriers are informed of the specific reason (e.g., "Out of Service," "Not Authorized") and the call ends gracefully. Each verification is also logged to the offers table for accurate call volume tracking.
-
-### 2. Intelligent Load Search
-
-**Endpoint:** `GET /loads`
-
-The load search system combines text filtering with geospatial intelligence:
-
-- **Geocoding:** The carrier's origin city is geocoded via the Nominatim OpenStreetMap API to get latitude/longitude coordinates.
-- **Haversine Distance:** Every load in the database is compared against the carrier's position using the Haversine formula, calculating great-circle distance in miles.
-- **Radius Filter:** Only loads within a 1,500-mile radius are returned, sorted by proximity (closest first).
-- **Smart Filtering:** Results can be filtered by equipment type, destination, pickup date (treated as "on or after"), and rate range. Loads with past pickup dates are automatically excluded.
-- **Enriched Response:** Each result includes `deadhead_miles` (empty miles to the load), `offer_rate` (85% of market rate for pitching), and `effective_rpm` (earnings per mile including deadhead).
-- **Search Metadata:** The response includes `search_meta` indicating whether a geo-search was performed and its radius, preventing the agent from redundantly searching nearby cities.
-
-**Query Parameters:**
-
-| Parameter | Description |
+| Feature | Description |
 |---|---|
-| `origin` | City/state to search near (geocoded to coordinates) |
-| `destination` | Filter by destination city |
-| `equipment_type` | Filter by trailer type (Dry Van, Reefer, Flatbed) |
-| `pickup_date` | Earliest pickup date (YYYY-MM-DD, returns loads on or after) |
+| **TMS Integration** | Connect to your live TMS for real load data instead of the seed database. The API is already structured for this — swap the DynamoDB scan for a TMS API call. |
+| **SMS Confirmation** | After a booking, automatically text the carrier the load ID, rate, pickup details, and broker contact. Reduces callback volume. |
+| **Outbound Campaigns** | Proactively call carriers in your database when high-priority loads need coverage. Reuses the same negotiation engine and prompt structure. |
+| **Call Recording Playback** | Link call recordings from HappyRobot to individual offer records so managers can review specific negotiations from the dashboard. |
 
-### 3. Automated Negotiation Engine
+### Medium-Term
 
-**Endpoint:** `POST /negotiate`
+| Feature | Description |
+|---|---|
+| **Rate Intelligence** | Analyze historical negotiation data to dynamically adjust the rate ladder per lane. Busy lanes start lower; hard-to-cover lanes start higher. |
+| **Carrier Scoring** | Track on-time performance, negotiation behavior, and booking frequency. Prioritize reliable repeat carriers. |
+| **Multi-Language** | Spanish language support — large segment of the owner-operator market. HappyRobot supports multilingual agents. |
+| **Load Board Sync** | Auto-post unbooked loads to DAT and Truckstop. Auto-remove when booked through the agent. |
 
-Rate negotiation is handled entirely server-side — the AI agent never calculates rates or makes pricing decisions. The engine implements a structured 3-round negotiation ladder:
+### Long-Term
 
-| Round | Our Offer | % of Market Rate |
-|---|---|---|
-| Opening offer | Floor | 85% |
-| 1st counter | Step 2 | 90% |
-| 2nd counter | Target | 95% |
-| Final offer | Ceiling | 100% |
-
-**Key behaviors:**
-
-- The agent's first call (no `carrier_rate`) returns the opening offer at 85% of market.
-- Each subsequent call with the carrier's counter-rate returns an `action`: `accept`, `counter`, or `final_offer`.
-- The engine never offers more than the carrier asked for — if the carrier's rate is below the next step, it accepts at their rate.
-- The first counter-offer is never accepted automatically; the engine always pushes back at least once.
-- Round tracking is automatic — the API counts prior `log_offer` records for the same load + carrier pair.
-- After 3 rounds, the engine issues a `final_offer` at ceiling (100% of market). If rejected, the agent offers to search a different lane.
-
-### 4. Offer Logging and Post-Call Processing
-
-**Endpoints:** `POST /offers`, `POST /offers/finalize`
-
-Every rate exchange during a call is logged as an individual record, creating a complete negotiation history:
-
-- `POST /offers` — Called by the agent after every offer/counter/acceptance. Records offered rate, counter rate, final rate, status, carrier name, equipment type, lane, sentiment, and key objections. Round number is auto-calculated from prior records.
-- `POST /offers/finalize` — Called by HappyRobot's post-call webhook. Stamps the final call metadata onto the most recent offer record: duration, sentiment, call result, user behavior, and equipment type.
-
-When a load is booked (status = "accepted"), the load's status is automatically updated to "booked" in the loads table.
-
-### 5. Timezone Resolution
-
-**Endpoint:** `GET /timezone`
-
-The US spans multiple timezones. When a carrier says "I want a load tomorrow," the system needs to know what "tomorrow" means in their location. The timezone tool:
-
-- Maps city/state input to IANA timezone identifiers
-- Returns the local date, time, day of week, and tomorrow's date
-- The agent calls this after learning the carrier's origin to correctly interpret relative dates
-
-### 6. Real-Time Analytics Dashboard
-
-**URL:** `/dashboard.html`
-
-A single-page dashboard built with DaisyUI (dark theme), Chart.js, and Leaflet.js. It fetches live data from `GET /dashboard/metrics` and renders:
-
-**KPI Cards:**
-- Total Calls (from carrier verifications)
-- Booking Rate (%)
-- Total Savings vs. market rates
-- Avg Savings per Deal
-- Avg Negotiation Rounds
-- Avg Call Duration
-
-**Conversion Funnel:**
-Total Calls → Verified → Loads Found → Negotiated → Booked (with drop-off percentages)
-
-**Charts and Visualizations:**
-- **Load Origins Map** — Interactive Leaflet map plotting all load origins with color-coded markers (green = booked, blue = available). Popups show rate, pickup date, equipment, and status.
-- **Rate Waterfall** — Bar chart comparing average Market Rate → Our Offer → Final Rate for booked deals.
-- **Negotiation Rounds** — Distribution of deals closed in 1, 2, or 3 rounds.
-- **Equipment Mix** — Doughnut chart of trailer types across negotiations.
-- **Carrier Sentiment** — Doughnut chart of sentiment classifications (positive, neutral, frustrated).
-- **Call Outcomes** — Doughnut chart of call results (booked, rejected, callback, etc.).
-
-**Tables:**
-- **Top Lanes** — Most active lanes with deal count, bookings, average final rate, and savings.
-- **Top Carriers** — Most active carriers with MC number, name, call count, bookings, and conversion rate.
-- **Recent Activity** — Live feed of the latest negotiations with status badges, user behavior indicators, rates, rounds, and duration.
-
----
-
-## HappyRobot Platform Integration
-
-The voice agent is configured on the HappyRobot platform as an inbound voice agent workflow with:
-
-**Voice Agent Configuration:**
-- GPT-4.1 model with a professional carrier sales persona ("Alex")
-- Key terms for transcription accuracy: MC, DOT, reefer, flatbed, dry van, deadhead, etc.
-- Real-time sentiment classifier (positive/neutral/negative)
-- Custom call outcome classifier (booked, rejected, no_match, not_authorized, transferred)
-- 600-second max call duration with office background noise
-
-**6 Tools configured in the prompt node:**
-
-1. `verify_carrier` — Webhook to `GET /carrier/verify/:mc_number`
-2. `search_loads` — Webhook to `GET /loads` with query parameters
-3. `negotiate` — Webhook to `POST /negotiate`
-4. `log_offer` — Webhook to `POST /offers`
-5. `get_timezone` — Webhook to `GET /timezone`
-6. `transfer_to_sales` — Direct warm transfer to sales team
-
-**Post-Call Processing (4-node chain after the voice agent):**
-
-1. **AI Classify: Analyze Call Result** — classifies the call outcome (successful, rejected, callback, no_loads_available, not_authorized)
-2. **AI Classify: user_behavior** — assesses carrier cooperativeness (smooth, neutral, difficult)
-3. **AI Classify: Assess User Sentiment** — determines emotional tone (positive, neutral, negative, frustrated)
-4. **Webhook: finalize** — sends `POST /offers/finalize` with the outputs of all three classifiers plus session duration and equipment type
-
-**Agent Prompt Highlights:**
-- Structured 7-step conversation flow (greet → verify → gather info → search → offer → negotiate → book/transfer)
-- "Silent Retry" pattern: if no loads are found, the agent automatically relaxes filters (drops date, then equipment) before telling the carrier the board is empty
-- Never interrogates — only asks for information the carrier didn't volunteer
-- Pitches loads using effective RPM (earnings per mile after deadhead)
-- Strict guardrails: never calculates rates, never transfers unless a price is agreed, never stacks questions
-- Edge case handling: garbled transcription, rate-per-mile negotiation, multi-timezone dates, ambiguous city names
-
----
-
-## Deployment and Infrastructure
-
-All infrastructure is managed via Terraform and deployed with a single command:
-
-```bash
-./deploy.sh
-```
-
-This script:
-1. Builds the Docker image
-2. Pushes it to ECR
-3. Runs `terraform apply` to create/update all AWS resources
-4. Forces an App Runner deployment to pull the latest image
-
-**AWS Resources Created:**
-- ECR Repository
-- App Runner Service (auto-scaling, managed TLS/HTTPS)
-- App Runner IAM roles (ECR access, instance role)
-- DynamoDB tables (loads, offers) with on-demand capacity
-- Environment variables injected via App Runner configuration
-
-**Security:**
-- All API endpoints require authentication via `Authorization: Bearer <token>` header
-- HTTPS is enforced by App Runner (AWS-managed certificates)
-- API key is stored as an environment variable, never hardcoded
-
----
-
-## API Endpoint Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | Service info and endpoint listing |
-| `GET` | `/health` | Health check (no auth required) |
-| `GET` | `/carrier/verify/:mc_number` | FMCSA carrier verification |
-| `GET` | `/loads` | Search loads with geo/filter support |
-| `GET` | `/loads/:id` | Get a specific load by ID |
-| `POST` | `/negotiate` | Get rate offer or respond to counter |
-| `POST` | `/offers` | Log a negotiation round |
-| `GET` | `/offers` | List all offer records |
-| `POST` | `/offers/finalize` | Post-call metadata webhook |
-| `GET` | `/timezone` | Get local date/time for a city |
-| `GET` | `/dashboard/metrics` | Aggregated analytics data |
-| `GET` | `/dashboard.html` | Analytics dashboard UI |
-
----
-
-## Sample Data
-
-The system is seeded with 30 freight loads across major US markets with dynamically generated pickup dates (1-7 days in the future). Load data includes:
-
-- Origins: Chicago, Dallas, Atlanta, Los Angeles, Jacksonville, Memphis, Nashville, Denver, Phoenix, Seattle, Miami, Houston, Charlotte, Indianapolis, Minneapolis, Kansas City, Columbus, San Antonio, El Paso, Portland, and more
-- Equipment types: Dry Van, Reefer, Flatbed, Power Only
-- Rates: $650 - $4,800
-- Full metadata: weight, commodity, piece count, dimensions, special handling notes
-- GPS coordinates for geospatial search
-
----
-
-## Future Enhancements
-
-1. **Outbound Campaigns** — Proactive calling to carriers with available capacity in high-demand lanes
-2. **TMS Integration** — Real-time load data from the broker's transportation management system instead of static seed data
-3. **Rate Intelligence** — Historical rate analysis for dynamic pricing based on lane, season, and market conditions
-4. **SMS Follow-up** — Automated text messages with load details and rate confirmation after booking
-5. **Multi-language Support** — Spanish language support for broader carrier coverage
-6. **Load Board Integration** — Automatic posting of unbooked loads to DAT, Truckstop, and other load boards
-7. **Carrier Scoring** — Track carrier reliability over time and prioritize repeat carriers with good history
+| Feature | Description |
+|---|---|
+| **Predictive Load Matching** | Use historical data to predict which loads a specific carrier is most likely to accept based on their lane history, equipment, and pricing patterns. |
+| **Fleet Management Mode** | Handle dispatchers managing multiple trucks — search for loads for several drivers in a single call, each with different locations and equipment. |
+| **Shipper-Side Agent** | Mirror agent for inbound shipper calls — quote rates, check capacity, and book shipments. |
