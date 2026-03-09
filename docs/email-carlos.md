@@ -1,7 +1,7 @@
 # Email to Carlos Becker
 
 **To:** Carlos Becker (c.becker@happyrobot.ai)
-**CC:** [Recruiter Name] ([recruiter@email.com])
+**CC:** Jorge Janeiro
 **Subject:** Inbound Carrier Sales AI — Build Update Ahead of Our Meeting
 
 ---
