@@ -25,7 +25,7 @@ The full system is deployed and running on AWS — a containerized Node.js API o
 **Links:**
 
 - **Live API:** https://4n3uiqqjvx.us-east-1.awsapprunner.com
-- **Dashboard:** https://4n3uiqqjvx.us-east-1.awsapprunner.com/dashboard.html?api_key=happy2025secret
+- **Dashboard:** https://4n3uiqqjvx.us-east-1.awsapprunner.com/dashboard.html?api_key=kpsyn89kYorRJOR2ePOmu5a8O1H5cgUnxSXXxAfgzvc=
 - **Code Repository:** https://github.com/janvdhorst/JanFDE
 - **HappyRobot Workflow:** https://platform.happyrobot.ai/fdejan/workflow/1zoox0eqgf6t/editor/llnit2ax0pzy
 
